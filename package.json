@@ -1,0 +1,16 @@
+{
+  "name": "gestao-ferias-abonos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema local de controle de férias e abonos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "nodemailer": "^10.0.16"
+  }
+}
