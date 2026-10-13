@@ -15,12 +15,23 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: 16px;
+}
+
 body {
   margin: 0;
-  font-family: Inter, Segoe UI, Arial, sans-serif;
+  font-family: Roboto, "Segoe UI", Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
 }
+
+.impersonate-banner {
+  position: sticky; top: 0; z-index: 30; min-height: 46px; padding: 8px 24px;
+  align-items: center; justify-content: center; gap: 16px; background: #fff1d7;
+  color: #68430e; border-bottom: 1px solid #e6bd75; font-weight: 700;
+}
+.impersonate-banner button { border: 0; border-radius: 8px; padding: 8px 13px; background: var(--navy); color: #fff; font-weight: 700; }
 
 button, input, select, textarea {
   font: inherit;
@@ -574,6 +585,28 @@ dialog::backdrop {
   text-overflow: ellipsis;
 }
 
+.audit-head { gap: 20px; }
+.audit-head input { width: min(360px, 100%); margin-left: auto; }
+.table-wrap th { position: sticky; top: 0; background: inherit; z-index: 1; }
+
+.conflict-dialog { padding: 28px 30px 30px; max-width: 560px; }
+.conflict-dialog h2 { margin: 0 0 12px; }
+.conflict-dialog ul { margin: 12px 0; padding-left: 22px; }
+.conflict-dialog li { margin: 7px 0; }
+.conflict-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; margin-bottom: 14px; background: #fff1d7; color: #9a6414; font-size: 24px; font-weight: 800; }
+
+body.dark-mode { --bg: #101820; --text: #e7edf2; --muted: #a4b2bd; --white: #18232d; --line: #31404c; background: var(--bg); }
+body.dark-mode header, body.dark-mode .auth-card, body.dark-mode .stat, body.dark-mode .card,
+body.dark-mode .table-wrap, body.dark-mode .alert-item, body.dark-mode dialog, body.dark-mode .secondary,
+body.dark-mode .icon-btn, body.dark-mode input, body.dark-mode select, body.dark-mode textarea,
+body.dark-mode .admin-tabs button { background: #18232d; color: var(--text); border-color: var(--line); }
+body.dark-mode th, body.dark-mode td { border-bottom-color: #293743; }
+body.dark-mode .old { background: #352c1e; }
+body.dark-mode .access-info { background: #153331; border-color: #24605b; }
+body.dark-mode .access-info > strong { color: #d6f4f1; }
+body.dark-mode .admin-tabs button.active { background: var(--teal); color: #fff; }
+body.dark-mode dialog::backdrop { background: #02080dcc; }
+
 .access-info {
   background: #edf8f7;
   border: 1px solid #bfe6e3;
@@ -691,6 +724,8 @@ dialog::backdrop {
   th, td {
     padding: 11px 10px;
   }
+  .audit-head { align-items: stretch; flex-direction: column; }
+  .audit-head input { width: 100%; margin-left: 0; }
 }
 
 /* =========================================================

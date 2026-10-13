@@ -233,8 +233,8 @@ function dashboard() {
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
                         <span class="badge ${e.dias <= 5 ? 'warn' : e.tipo}">${e.dias === 0 ? 'Hoje' : e.dias + ' dia(s)'}</span>
-                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'manter')" title="Manter alerta">Manter</button>
-                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'parar')" title="Parar alerta">Parar</button>
+                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'manter')" title="Manter alerta">Manter Alerta</button>
+                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'parar')" title="Parar alerta">Parar Alertar</button>
                     </div>
                 </div>
             `).join('') : '<div class="card empty">Nenhum alerta pendente.</div>'}
@@ -248,9 +248,8 @@ function dashboard() {
 async function responderAlerta(id, acao) {
     try {
         await api(`/api/alertas/${id}/responder`, { method: 'POST', body: JSON.stringify({ acao }) });
-        if (acao === 'parar') {
-            $(`#alerta-${id}`)?.remove();
-        }
+        await reload();
+        dashboard();
         toast(acao === 'parar' ? 'Alerta interrompido.' : 'Alerta mantido.');
     } catch (x) {
         toast(x.message, true);
@@ -328,17 +327,18 @@ function arquivados() {
 
 async function auditoria() {
     try {
-        state.auditoria = await api('/api/admin/audit');
+        state.auditoria = await api('/api/audit');
     } catch {
         state.auditoria = [];
     }
     $('#content').innerHTML = `
     <div class="page">
-        <div class="section-head">
+        <div class="section-head audit-head">
             <div>
                 <h3>Logs de Auditoria</h3>
                 <small>Histórico completo de ações realizadas no sistema.</small>
             </div>
+            <input id="auditSearch" type="search" placeholder="Buscar por usuário, ação ou IP" aria-label="Buscar na auditoria">
         </div>
         <div class="table-wrap">
             ${state.auditoria.length ? `
@@ -354,7 +354,7 @@ async function auditoria() {
                 </thead>
                 <tbody>
                     ${state.auditoria.map(a => `
-                        <tr>
+                        <tr data-audit-row="${esc(`${a.username || 'Sistema'} ${a.action} ${a.ip} ${a.details}`.toLowerCase())}">
                             <td>${new Date(a.created_at + 'Z').toLocaleString('pt-BR')}</td>
                             <td>${esc(a.username || 'Sistema')}</td>
                             <td>${esc(a.action)}</td>
@@ -366,6 +366,10 @@ async function auditoria() {
             </table>` : '<div class="empty">Nenhum log de auditoria encontrado.</div>'}
         </div>
     </div>`;
+    $('#auditSearch')?.addEventListener('input', e => {
+        const term = e.target.value.trim().toLowerCase();
+        $$('[data-audit-row]').forEach(row => row.hidden = !row.dataset.auditRow.includes(term));
+    });
 }
 
 function perfil() {
@@ -584,24 +588,24 @@ window.openEvent = (tipo = 'ferias', id = null) => {
             await enviarRegistro(d);
         } catch (x) {
             if (x.data?.error === 'CONFLICT') {
-                const list = x.data.conflicts.map(c => `${c.servidor_nome} (${fmt(c.inicio)} a ${fmt(c.fim)})`).join('\n');
+                const list = x.data.conflicts.map(c => `${c.servidor_nome} — ${c.tipo === 'ferias' ? 'Férias' : 'Abono'} (${fmt(c.inicio)} a ${fmt(c.fim)})`);
                 
                 // Exibe modal de conflito customizado ou nativo
                 const modalConflito = $('#modalConflito');
                 if (modalConflito) {
-                    $('#modalConflitoTexto').innerHTML = `Existe conflito de datas com:<br><strong>${esc(list)}</strong><br><br>Deseja continuar assim mesmo?`;
+                    $('#modalConflitoTexto').innerHTML = `<p>O período informado coincide com:</p><ul>${list.map(item => `<li>${esc(item)}</li>`).join('')}</ul><p><strong>Deseja continuar ou voltar para ajustar as datas?</strong></p>`;
                     modalConflito.showModal();
                     
                     $('#btnConflitoContinuar').onclick = async () => {
                         modalConflito.close();
                         d.confirmConflict = true;
-                        await enviarRegistro(d);
+                        try { await enviarRegistro(d); } catch (err) { toast(err.message, true); }
                     };
                     
                     $('#btnConflitoVoltar').onclick = () => {
                         modalConflito.close();
                     };
-                } else if (confirm(`Conflito de datas com:\n${list}\n\nDeseja continuar mesmo assim?`)) {
+                } else if (confirm(`Conflito de datas com:\n${list.join('\n')}\n\nDeseja continuar mesmo assim?`)) {
                     d.confirmConflict = true;
                     await enviarRegistro(d);
                 }
