@@ -8,6 +8,7 @@ if not exist "%DESTINO%" (
   exit /b 1
 )
 copy /Y "%~dp0server.js" "%DESTINO%\server.js" >nul
+copy /Y "%~dp0index.php" "%DESTINO%\index.php" >nul
 copy /Y "%~dp0public\index.html" "%DESTINO%\public\index.html" >nul
 copy /Y "%~dp0public\app.js" "%DESTINO%\public\app.js" >nul
 copy /Y "%~dp0public\style.css" "%DESTINO%\public\style.css" >nul

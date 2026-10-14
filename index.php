@@ -10,7 +10,11 @@ if ($apiPosition !== false) {
     $query = $_SERVER['QUERY_STRING'] ?? '';
     $target = 'http://127.0.0.1:3000' . $apiPath . ($query ? '?' . $query : '');
     $curl = curl_init($target);
-    $headers = ['Content-Type: ' . ($_SERVER['CONTENT_TYPE'] ?? 'application/json')];
+    $headers = [
+        'Content-Type: ' . ($_SERVER['CONTENT_TYPE'] ?? 'application/json'),
+        'X-Forwarded-For: ' . ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'),
+        'X-Forwarded-Proto: ' . ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http'),
+    ];
     if (!empty($_SERVER['HTTP_COOKIE'])) $headers[] = 'Cookie: ' . $_SERVER['HTTP_COOKIE'];
     curl_setopt_array($curl, [
         CURLOPT_CUSTOMREQUEST => $_SERVER['REQUEST_METHOD'],

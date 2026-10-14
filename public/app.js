@@ -16,6 +16,23 @@ function toast(msg, bad = false) {
     setTimeout(() => t.style.display = 'none', 3500);
 }
 
+function confirmDialog({ title = 'Confirmar ação', message, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', danger = false } = {}) {
+    const dialog = $('#confirmModal');
+    if (!dialog) return Promise.resolve(false);
+    $('#confirmModalTitulo').textContent = title;
+    $('#confirmModalTexto').textContent = message || 'Deseja continuar?';
+    $('#confirmModalConfirmar').textContent = confirmLabel;
+    $('#confirmModalCancelar').textContent = cancelLabel;
+    dialog.classList.toggle('is-danger', danger);
+    dialog.showModal();
+    return new Promise(resolve => {
+        const finish = value => { dialog.close(); resolve(value); };
+        $('#confirmModalConfirmar').onclick = () => finish(true);
+        $('#confirmModalCancelar').onclick = () => finish(false);
+        dialog.oncancel = event => { event.preventDefault(); finish(false); };
+    });
+}
+
 async function api(url, opt = {}) {
     const r = await fetch(`${API_BASE}${url}`, {
         headers: { 'Content-Type': 'application/json' },
@@ -65,7 +82,7 @@ function initThemeAndAccessibility() {
         applyFontSize(currentFontSize);
     });
 
-    const btnDark = $('#btnToggleDark');     function applyDarkMode(isDark) {         if (isDark) {             document.body.classList.add('dark-mode');             if (btnDark) btnDark.innerHTML = '<span class="theme-icon">☀️</span> <span class="theme-text">Modo Claro</span>';         } else {             document.body.classList.remove('dark-mode');             if (btnDark) btnDark.innerHTML = '<span class="theme-icon">🌙</span> <span class="theme-text">Modo Dark</span>';         }     }      btnDark?.addEventListener('click', () => {         const isDark = !document.body.classList.contains('dark-mode');         localStorage.setItem('app_dark_mode', isDark ? 'enabled' : 'disabled');         applyDarkMode(isDark);     });      if (localStorage.getItem('app_dark_mode') === 'enabled') {         applyDarkMode(true);     } }  /* =========================================================    AUTENTICAÇÃO E NAVEGAÇÃO    ========================================================= */ $$('[data-auth]').forEach(b => b.onclick = () => {$$('[data-auth]').forEach(x => x.classList.toggle('active', x === b));$('#loginForm').hidden = b.dataset.auth !== 'login';
+    const btnDark = $('#btnToggleDark');     function applyDarkMode(isDark) {         if (isDark) {             document.body.classList.add('dark-mode');             if (btnDark) btnDark.innerHTML = '<i class="theme-icon bi bi-sun-fill" aria-hidden="true"></i><span class="theme-text">Modo claro</span>';         } else {             document.body.classList.remove('dark-mode');             if (btnDark) btnDark.innerHTML = '<i class="theme-icon bi bi-moon-stars-fill" aria-hidden="true"></i><span class="theme-text">Modo escuro</span>';         }     }      btnDark?.addEventListener('click', () => {         const isDark = !document.body.classList.contains('dark-mode');         localStorage.setItem('app_dark_mode', isDark ? 'enabled' : 'disabled');         applyDarkMode(isDark);     });      if (localStorage.getItem('app_dark_mode') === 'enabled') {         applyDarkMode(true);     } }  /* =========================================================    AUTENTICAÇÃO E NAVEGAÇÃO    ========================================================= */ $$('[data-auth]').forEach(b => b.onclick = () => {$$('[data-auth]').forEach(x => x.classList.toggle('active', x === b));$('#loginForm').hidden = b.dataset.auth !== 'login';
     $('#registerForm').hidden = b.dataset.auth !== 'register';
     $('#forgotForm').hidden = $('#resetForm').hidden = true;
 });
@@ -152,7 +169,7 @@ async function boot() {
         showPage('dashboard');
     } catch {
         $('#auth').hidden = false;
-        $('#app').hidden = true;     } }  async function reload() {     [state.servidores, state.eventos, state.arquivados, state.alertas] = await Promise.all([         api('/api/servidores'),         api('/api/eventos'),         api('/api/eventos?archived=1'),         api('/api/alertas')     ]); }  $$('[data-page]').forEach(b => b.onclick = () => showPage(b.dataset.page));
+        $('#app').hidden = true;     } }  async function reload() {     [state.servidores, state.eventos, state.arquivados, state.alertas] = await Promise.all([         api('/api/servidores'),         api('/api/eventos'),         api('/api/eventos?archived=1'),         api('/api/alertas')     ]); renderAlertBell(); }  $$('[data-page]').forEach(b => b.onclick = () => showPage(b.dataset.page));
 if ($('#menuBtn')) $('#menuBtn').onclick = () => $('aside').classList.toggle('open');
 
 $('#logout').onclick = async () => {
@@ -183,6 +200,7 @@ function eventRows(items, archived = false) {
                 <th>Tipo</th>
                 <th>Período</th>
                 <th>Alerta extra</th>
+                <th>Criado por</th>
                 ${archived ? '<th>Retenção</th>' : ''}
                 <th>Ações</th>
             </tr>
@@ -193,10 +211,11 @@ function eventRows(items, archived = false) {
                     <td><strong>${esc(e.servidor_nome)}</strong><br><small>${esc(e.observacoes || '')}</small></td>
                     <td><span class="badge ${e.tipo}">${e.tipo === 'ferias' ? 'Férias' : 'Abono'}</span></td>
                     <td>${fmt(e.inicio)} —${fmt(e.fim)}</td>
-                    <td>${fmt(e.alerta_extra)}</td>${archived ? `<td>${e.dias_arquivado > 1826 ? '<span class="redtext">Mais de 5 anos</span>' : Math.max(0, Math.floor(e.dias_arquivado / 365)) + ' ano(s)'}</td>` : ''}
+                    <td>${fmt(e.alerta_extra)}</td>
+                    <td><span class="owner-chip"><i class="bi bi-person-circle" aria-hidden="true"></i>${esc(e.criado_por || 'Conta removida')}</span></td>
+                    ${archived ? `<td>${e.dias_arquivado > 1826 ? '<span class="redtext">Mais de 5 anos</span>' : Math.max(0, Math.floor(e.dias_arquivado / 365)) + ' ano(s)'}</td>` : ''}
                     <td class="actions">
-                        ${!archived ? `<button class="icon-btn" onclick="openEvent('${e.tipo}', ${e.id})">Editar</button>` : ''}
-                        <button class="icon-btn" onclick="deleteEvent(${e.id},${archived})">Excluir</button>
+                        ${e.pode_editar ? `${!archived ? `<button class="icon-btn action-edit" onclick="openEvent('${e.tipo}', ${e.id})" title="Editar este registro"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Editar</span></button>` : ''}<button class="icon-btn action-delete" onclick="deleteEvent(${e.id},${archived})" title="Excluir este registro"><i class="bi bi-trash3" aria-hidden="true"></i><span>Excluir</span></button>` : '<span class="readonly-label" title="Somente quem criou pode alterar"><i class="bi bi-lock-fill" aria-hidden="true"></i> Somente leitura</span>'}
                     </td>
                 </tr>
             `).join('')}
@@ -213,14 +232,14 @@ function dashboard() {
                 <h1>Olá, ${esc(state.me.username)}.</h1>
                 <p>Acompanhe a programação da equipe e não perca nenhum prazo.</p>
             </div>
-            <button onclick="openEvent()">+ Novo registro</button>
+            <button onclick="openNewRecord()"><i class="bi bi-plus-circle-fill" aria-hidden="true"></i> Novo registro</button>
         </section>
         
         <section class="stats">
-            <div class="stat"><span class="dot">♙</span><small>Servidores cadastrados</small><strong>${state.servidores.length}</strong></div>
-            <div class="stat"><span class="dot">☀</span><small>Férias ativas ou futuras</small><strong>${state.eventos.filter(x => x.tipo === 'ferias').length}</strong></div>
-            <div class="stat"><span class="dot">◷</span><small>Abonos ativos ou futuros</small><strong>${state.eventos.filter(x => x.tipo === 'abono').length}</strong></div>
-            <div class="stat"><span class="dot">!</span><small>Alertas atuais</small><strong>${state.alertas.length}</strong></div>
+            <button type="button" class="stat stat-link" onclick="showPage('servidores')" aria-label="Abrir servidores cadastrados"><span class="dot"><i class="bi bi-people-fill" aria-hidden="true"></i></span><small>Servidores cadastrados</small><strong>${state.servidores.length}</strong><span class="stat-action">Ver servidores <i class="bi bi-arrow-right" aria-hidden="true"></i></span></button>
+            <button type="button" class="stat stat-link" onclick="showPage('ferias')" aria-label="Abrir férias ativas ou futuras"><span class="dot"><i class="bi bi-sun-fill" aria-hidden="true"></i></span><small>Férias ativas ou futuras</small><strong>${state.eventos.filter(x => x.tipo === 'ferias').length}</strong><span class="stat-action">Ver férias <i class="bi bi-arrow-right" aria-hidden="true"></i></span></button>
+            <button type="button" class="stat stat-link" onclick="showPage('abono')" aria-label="Abrir abonos ativos ou futuros"><span class="dot"><i class="bi bi-calendar2-check-fill" aria-hidden="true"></i></span><small>Abonos ativos ou futuros</small><strong>${state.eventos.filter(x => x.tipo === 'abono').length}</strong><span class="stat-action">Ver abonos <i class="bi bi-arrow-right" aria-hidden="true"></i></span></button>
+            <div class="stat"><span class="dot"><i class="bi bi-bell-fill" aria-hidden="true"></i></span><small>Alertas atuais</small><strong>${state.alertas.length}</strong></div>
         </section>
 
         <div class="section-head"><h3>Alertas e próximos compromissos</h3></div>
@@ -233,8 +252,8 @@ function dashboard() {
                     </div>
                     <div style="display:flex; align-items:center; gap:8px;">
                         <span class="badge ${e.dias <= 5 ? 'warn' : e.tipo}">${e.dias === 0 ? 'Hoje' : e.dias + ' dia(s)'}</span>
-                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'manter')" title="Manter alerta">Manter Alerta</button>
-                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'parar')" title="Parar alerta">Parar Alertar</button>
+                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'manter')" title="Manter alerta">Manter</button>
+                        <button class="icon-btn" onclick="responderAlerta(${e.id}, 'parar')" title="Parar alerta">Parar</button>
                     </div>
                 </div>
             `).join('') : '<div class="card empty">Nenhum alerta pendente.</div>'}
@@ -264,7 +283,10 @@ function servidores() {
                 <h3>Servidores</h3>
                 <small>Somente o nome completo é obrigatório.</small>
             </div>
-            <button class="primary" onclick="openServidor()">+ Cadastrar servidor</button>
+            <div class="section-actions">
+                <button type="button" class="secondary" onclick="showPage('dashboard')"><i class="bi bi-arrow-left" aria-hidden="true"></i> Voltar</button>
+                <button class="primary" onclick="openServidor()">+ Cadastrar servidor</button>
+            </div>
         </div>
         <div class="table-wrap">
             ${state.servidores.length ? `
@@ -273,6 +295,7 @@ function servidores() {
                     <tr>
                         <th>Nome completo</th>
                         <th>Função</th>
+                        <th>E-mail</th>
                         <th>CPF</th>
                         <th>Matrícula</th>
                         <th>Ações</th>
@@ -283,6 +306,7 @@ function servidores() {
                         <tr>
                             <td><strong>${esc(s.nome)}</strong></td>
                             <td>${esc(s.funcao || '—')}</td>
+                            <td>${esc(s.email || '—')}</td>
                             <td>${esc(s.cpf || '—')}</td>
                             <td>${esc(s.matricula || '—')}</td>
                             <td class="actions">
@@ -306,7 +330,11 @@ function eventos(tipo) {
                 <h3>${tipo === 'ferias' ? 'Férias programadas' : 'Abonos programados'}</h3>
                 <small>Os alertas padrão aparecem a partir de 20 dias antes.</small>
             </div>
-            <button class="primary" onclick="openEvent('${tipo}')">+ Novo ${tipo === 'ferias' ? 'período' : 'abono'}</button>
+            <div class="section-actions">
+                <button type="button" class="secondary" onclick="showPage('dashboard')"><i class="bi bi-arrow-left" aria-hidden="true"></i> Voltar</button>
+                <button class="secondary" onclick="openExport('${tipo}')"><i class="bi bi-download" aria-hidden="true"></i> Exportar</button>
+                <button class="primary" onclick="openEvent('${tipo}')">+ Novo ${tipo === 'ferias' ? 'período' : 'abono'}</button>
+            </div>
         </div>
         <div class="table-wrap">${eventRows(items)}</div>
     </div>`;
@@ -357,9 +385,9 @@ async function auditoria() {
                         <tr data-audit-row="${esc(`${a.username || 'Sistema'} ${a.action} ${a.ip} ${a.details}`.toLowerCase())}">
                             <td>${new Date(a.created_at + 'Z').toLocaleString('pt-BR')}</td>
                             <td>${esc(a.username || 'Sistema')}</td>
-                            <td>${esc(a.action)}</td>
+                            <td>${esc(auditActionLabel(a.action))}</td>
                             <td>${esc(a.ip)}</td>
-                            <td class="audit-detail" title="${esc(a.details)}">${esc(a.details)}</td>
+                            <td><button type="button" class="icon-btn" onclick="openAuditDetails(${a.id})">Ver detalhes</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -402,7 +430,7 @@ function perfil() {
     };
 
     $('#deleteAccount').onclick = async () => {
-        if (confirm('Excluir sua conta permanentemente?')) {
+        if (await confirmDialog({ title: 'Excluir sua conta?', message: 'Esta ação é permanente e seus dados de acesso serão removidos. Deseja continuar?', confirmLabel: 'Excluir conta', danger: true })) {
             await api('/api/me', { method: 'DELETE' });
             location.reload();
         }
@@ -412,6 +440,7 @@ function perfil() {
 async function admin(tab = 'users') {
     if (state.me.role !== 'master') return;
     const [users, audit] = await Promise.all([api('/api/admin/users'), api('/api/admin/audit')]);
+    state.auditoria = audit;
     
     $('#content').innerHTML = `
     <div class="page">
@@ -468,9 +497,9 @@ async function admin(tab = 'users') {
                         <tr>
                             <td>${new Date(a.created_at + 'Z').toLocaleString('pt-BR')}</td>
                             <td>${esc(a.username || 'Sistema')}</td>
-                            <td>${esc(a.action)}</td>
+                            <td>${esc(auditActionLabel(a.action))}</td>
                             <td>${esc(a.ip)}</td>
-                            <td class="audit-detail" title="${esc(a.details)}">${esc(a.details)}</td>
+                            <td><button type="button" class="icon-btn" onclick="openAuditDetails(${a.id})">Ver detalhes</button></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -487,19 +516,262 @@ function modal(html) {
     $('#modal').showModal();
 }
 
+window.closeModal = () => $('#modal')?.close();
+
+window.openNewRecord = () => {
+    modal(`
+        <h2>O que deseja cadastrar?</h2>
+        <p class="export-intro">Escolha uma opção para abrir diretamente o formulário correspondente.</p>
+        <div class="record-choice-grid">
+            <button type="button" class="record-choice" onclick="closeModal(); openEvent('ferias')">
+                <span class="record-choice-icon"><i class="bi bi-sun-fill" aria-hidden="true"></i></span>
+                <span><strong>Férias</strong><small>Cadastrar um novo período de férias</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="record-choice" onclick="closeModal(); openEvent('abono')">
+                <span class="record-choice-icon"><i class="bi bi-calendar2-check-fill" aria-hidden="true"></i></span>
+                <span><strong>Abono</strong><small>Cadastrar um novo período de abono</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="record-choice" onclick="closeModal(); openServidor()">
+                <span class="record-choice-icon"><i class="bi bi-person-plus-fill" aria-hidden="true"></i></span>
+                <span><strong>Novo servidor</strong><small>Adicionar uma pessoa ao cadastro</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="record-choice" onclick="closeModal(); openNewAlert()">
+                <span class="record-choice-icon"><i class="bi bi-bell-fill" aria-hidden="true"></i></span>
+                <span><strong>Alerta</strong><small>Definir um aviso para um registro existente</small></span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="form-actions"><button type="button" class="secondary" onclick="closeModal()">Cancelar</button></div>
+    `);
+};
+
+window.openNewAlert = () => {
+    const ownEvents = state.eventos.filter(evento => evento.pode_editar);
+    $('#notificationPanel').hidden = true;
+    $('#notificationBell')?.setAttribute('aria-expanded', 'false');
+    if (!ownEvents.length) {
+        toast('Cadastre primeiro um período de férias ou abono em sua conta.', true);
+        return;
+    }
+    modal(`
+        <h2>Criar alerta</h2>
+        <form id="newAlertForm">
+            <p class="export-intro">O alerta ficará vinculado à sua conta e aparecerá no sino do cabeçalho.</p>
+            <label>Registro relacionado *
+                <select name="evento_id" required>
+                    <option value="">Selecione um registro</option>
+                    ${ownEvents.map(e => `<option value="${e.id}">${esc(e.servidor_nome)} — ${e.tipo === 'ferias' ? 'Férias' : 'Abono'} (${fmt(e.inicio)} a ${fmt(e.fim)})</option>`).join('')}
+                </select>
+            </label>
+            <label>Data do alerta *<input type="date" name="alerta_extra" min="${new Date().toISOString().slice(0, 10)}" required></label>
+            <div class="form-actions">
+                <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
+                <button class="primary"><i class="bi bi-bell-fill" aria-hidden="true"></i> Salvar alerta</button>
+            </div>
+        </form>
+    `);
+    $('#newAlertForm').onsubmit = async event => {
+        event.preventDefault();
+        const data = formData(event.currentTarget);
+        const evento = ownEvents.find(item => item.id === Number(data.evento_id));
+        if (!evento) return toast('Selecione um registro válido.', true);
+        try {
+            await api(`/api/eventos/${evento.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                    servidor_id: evento.servidor_id, tipo: evento.tipo, inicio: evento.inicio, fim: evento.fim,
+                    alerta_extra: data.alerta_extra, observacoes: evento.observacoes || '', confirmConflict: true
+                })
+            });
+            closeModal();
+            await reload();
+            if ($('#pageTitle')?.textContent === 'Visão geral') dashboard();
+            toast('Alerta criado e vinculado à sua conta.');
+        } catch (error) {
+            toast(error.message, true);
+        }
+    };
+};
+
+function renderAlertBell() {
+    const count = $('#notificationCount');
+    const list = $('#notificationList');
+    if (!count || !list) return;
+    const unread = state.alertas.filter(alerta => !alerta.lido).length;
+    count.textContent = unread > 99 ? '99+' : String(unread);
+    count.hidden = unread === 0;
+    if ($('#markAllAlertsRead')) $('#markAllAlertsRead').disabled = unread === 0;
+    list.innerHTML = state.alertas.length ? state.alertas.map(alerta => `
+        <div class="notification-item ${alerta.lido ? 'is-read' : ''}">
+            <span class="notification-item-icon"><i class="bi bi-${alerta.tipo === 'ferias' ? 'sun-fill' : 'calendar2-check-fill'}" aria-hidden="true"></i></span>
+            <div><strong>${esc(alerta.servidor_nome)} · ${alerta.tipo === 'ferias' ? 'Férias' : 'Abono'}</strong><small>${fmt(alerta.inicio)} a ${fmt(alerta.fim)}${alerta.alerta_extra ? `<br>Alerta programado: ${fmt(alerta.alerta_extra)}` : ''}</small>
+                <div class="notification-actions">${alerta.lido ? '<span class="read-label"><i class="bi bi-check2"></i> Lido</span>' : `<button type="button" onclick="markAlertRead(${alerta.id})">Marcar como lido</button>`}<button type="button" class="delete-alert" onclick="deleteAlert(${alerta.id})"><i class="bi bi-trash3"></i> Apagar</button></div>
+            </div>
+        </div>
+    `).join('') : '<div class="notification-empty"><i class="bi bi-bell-slash" aria-hidden="true"></i><p>Você não possui alertas ativos.</p></div>';
+}
+
+window.markAlertRead = async id => {
+    try { await api(`/api/alertas/${id}/lido`, { method: 'POST' }); await reload(); toast('Alerta marcado como lido.'); }
+    catch (error) { toast(error.message, true); }
+};
+window.markAllAlertsRead = async () => {
+    try { await api('/api/alertas/ler-todos', { method: 'POST' }); await reload(); toast('Todos os alertas foram marcados como lidos.'); }
+    catch (error) { toast(error.message, true); }
+};
+window.deleteAlert = async id => {
+    try { await api(`/api/alertas/${id}`, { method: 'DELETE' }); await reload(); toast('Alerta apagado.'); }
+    catch (error) { toast(error.message, true); }
+};
+
+$('#notificationBell')?.addEventListener('click', event => {
+    event.stopPropagation();
+    const panel = $('#notificationPanel');
+    panel.hidden = !panel.hidden;
+    event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
+});
+
+$('#notificationPanel')?.addEventListener('click', event => event.stopPropagation());
+document.addEventListener('click', () => {
+    const panel = $('#notificationPanel');
+    if (panel && !panel.hidden) {
+        panel.hidden = true;
+        $('#notificationBell')?.setAttribute('aria-expanded', 'false');
+    }
+});
+
+window.openExport = tipo => {
+    const label = tipo === 'ferias' ? 'Férias' : 'Abonos';
+    modal(`
+        <h2>Exportar planilha de ${label}</h2>
+        <form id="exportForm" class="export-form">
+            <p class="export-intro">Escolha o período, os servidores e o formato do documento. Datas em branco incluem todo o período cadastrado.</p>
+            <div class="grid2">
+                <label>Período inicial<input type="date" name="inicio"></label>
+                <label>Período final<input type="date" name="fim"></label>
+            </div>
+            <div class="server-picker">
+                <div class="server-picker-head"><strong>Servidores</strong><button type="button" class="icon-btn" id="toggleExportServers">Desmarcar todos</button></div>
+                <div class="server-picker-list">
+                    ${state.servidores.map(s => `<label class="server-check"><input type="checkbox" name="servidores" value="${s.id}" checked><span>${esc(s.nome)}</span></label>`).join('')}
+                </div>
+            </div>
+            <div class="export-format" role="radiogroup" aria-label="Formato do arquivo">
+                <label class="format-option"><input type="radio" name="formato" value="excel" checked><span><strong>Excel</strong><br><small>Arquivo .csv compatível com Excel</small></span></label>
+                <label class="format-option"><input type="radio" name="formato" value="pdf"><span><strong>PDF</strong><br><small>Documento pronto para salvar ou imprimir</small></span></label>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
+                <button class="primary"><i class="bi bi-download" aria-hidden="true"></i> Gerar documento</button>
+            </div>
+        </form>
+    `);
+    let allSelected = true;
+    $('#toggleExportServers').onclick = event => {
+        allSelected = !allSelected;
+        $$('#exportForm [name="servidores"]').forEach(input => input.checked = allSelected);
+        event.currentTarget.textContent = allSelected ? 'Desmarcar todos' : 'Selecionar todos';
+    };
+    $('#exportForm').onsubmit = event => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const ids = new Set($$('[name="servidores"]:checked', form).map(input => Number(input.value)));
+        const inicio = form.inicio.value;
+        const fim = form.fim.value;
+        if (inicio && fim && fim < inicio) return toast('A data final deve ser igual ou posterior à inicial.', true);
+        if (!ids.size) return toast('Selecione ao menos um servidor.', true);
+        const rows = state.eventos.filter(e => e.tipo === tipo && ids.has(Number(e.servidor_id)) && (!inicio || e.fim >= inicio) && (!fim || e.inicio <= fim));
+        if (!rows.length) return toast('Nenhum registro encontrado com os filtros informados.', true);
+        const meta = { tipo, label, inicio, fim };
+        if (form.formato.value === 'excel') exportExcel(rows, meta); else exportPdf(rows, meta);
+        closeModal();
+        toast(`${rows.length} registro(s) preparado(s) para exportação.`);
+    };
+};
+
+function exportRows(rows) {
+    return rows.map(e => [e.servidor_nome, e.tipo === 'ferias' ? 'Férias' : 'Abono', fmt(e.inicio), fmt(e.fim), fmt(e.alerta_extra), e.observacoes || '', e.criado_por || 'Conta removida']);
+}
+
+function exportExcel(rows, meta) {
+    const headers = ['Servidor', 'Tipo', 'Data inicial', 'Data final', 'Alerta extra', 'Observações', 'Criado por'];
+    const csvCell = value => {
+        let text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
+        // Impede que conteúdos digitados pelo usuário sejam interpretados como fórmulas.
+        if (/^[=+\-@]/.test(text)) text = `'${text}`;
+        return `"${text.replace(/"/g, '""')}"`;
+    };
+    // "sep=;" faz o Excel brasileiro reconhecer as colunas mesmo quando o
+    // separador regional do Windows é ponto e vírgula. O BOM preserva acentos.
+    const csv = `sep=;\r\n${[headers, ...exportRows(rows)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
+    downloadBlob(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }), `${meta.tipo}-${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportPdf(rows, meta) {
+    const popup = window.open('', '_blank');
+    if (!popup) return toast('Permita a abertura de janelas para gerar o PDF.', true);
+    popup.opener = null;
+    const period = meta.inicio || meta.fim ? `${meta.inicio ? fmt(meta.inicio) : 'Início'} a ${meta.fim ? fmt(meta.fim) : 'Hoje'}` : 'Todos os períodos';
+    const body = exportRows(rows).map(row => `<tr>${row.map(value => `<td>${esc(value)}</td>`).join('')}</tr>`).join('');
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${meta.label}</title><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial;color:#173042}h1{margin:0 0 6px;color:#12314b}.meta{color:#627482;margin-bottom:20px}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#12314b;color:#fff;text-align:left}th,td{padding:8px;border:1px solid #dbe4e9;vertical-align:top}tr:nth-child(even){background:#f4f7f8}.footer{margin-top:14px;font-size:9px;color:#71808c}</style></head><body><h1>Relatório de ${meta.label}</h1><div class="meta">Período: ${period} · ${rows.length} registro(s)</div><table><thead><tr>${['Servidor','Tipo','Data inicial','Data final','Alerta extra','Observações','Criado por'].map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><div class="footer">Gerado em ${new Date().toLocaleString('pt-BR')}</div><script>window.onload=()=>{window.print()}<\/script></body></html>`);
+    popup.document.close();
+}
+
+function auditActionLabel(action) {
+    const labels = {
+        LOGIN: 'Entrada no sistema', LOGIN_FAILED: 'Tentativa de acesso sem sucesso', LOGOUT: 'Saída do sistema',
+        CREATE_ACCOUNT: 'Conta criada', CREATE_SERVIDOR: 'Servidor cadastrado', UPDATE_SERVIDOR: 'Servidor atualizado',
+        DELETE_SERVIDOR: 'Servidor excluído', CREATE_EVENTO: 'Registro criado', UPDATE_EVENTO: 'Registro atualizado',
+        DELETE_EVENTO: 'Registro excluído', ADMIN_CREATE_USER: 'Usuário cadastrado pelo master',
+        ADMIN_UPDATE_USER: 'Usuário atualizado pelo master', ADMIN_DELETE_USER: 'Usuário excluído pelo master',
+        IMPERSONATE: 'Master acessou outro usuário', RESTORE_MASTER: 'Retorno à conta master',
+        KEEP_ALERT: 'Alerta mantido', STOP_ALERT: 'Alerta interrompido', UPDATE_PROFILE: 'Perfil atualizado'
+    };
+    return labels[action] || action.replaceAll('_', ' ').toLowerCase();
+}
+
+window.openAuditDetails = id => {
+    const record = state.auditoria.find(item => item.id === id);
+    if (!record) return toast('Detalhes não encontrados.', true);
+    let details = {};
+    try { details = JSON.parse(record.details || '{}'); } catch { details = { informação: record.details }; }
+    const entries = Object.entries(details);
+    modal(`
+        <h2>Detalhes da auditoria</h2>
+        <dl class="audit-details-list">
+            <div><dt>Data e hora</dt><dd>${new Date(record.created_at + 'Z').toLocaleString('pt-BR')}</dd></div>
+            <div><dt>Usuário</dt><dd>${esc(record.username || 'Sistema')}</dd></div>
+            <div><dt>Ação</dt><dd>${esc(auditActionLabel(record.action))}</dd></div>
+            <div><dt>Endereço IP</dt><dd>${esc(record.ip || '—')}</dd></div>
+            ${entries.map(([key, value]) => `<div><dt>${esc(key.replaceAll('_', ' '))}</dt><dd>${esc(Array.isArray(value) ? value.join(', ') : value)}</dd></div>`).join('')}
+        </dl>
+        ${entries.length ? '' : '<p class="empty compact">Esta ação não possui informações adicionais.</p>'}
+        <div class="form-actions"><button type="button" class="primary" onclick="closeModal()">Fechar</button></div>
+    `);
+};
+
 window.openServidor = id => {
     const s = state.servidores.find(x => x.id === id) || {};
     modal(`
         <h2>${id ? 'Editar' : 'Cadastrar'} servidor</h2>
         <form id="servidorForm">
             <label>Nome completo *<input name="nome" required value="${esc(s.nome || '')}"></label>
-            <label>Função<input name="funcao" value="${esc(s.funcao || '')}"></label>
+            <div class="grid2">
+                <label>Função<input name="funcao" value="${esc(s.funcao || '')}"></label>
+                <label>E-mail<input type="email" name="email" value="${esc(s.email || '')}"></label>
+            </div>
             <div class="grid2">
                 <label>CPF<input name="cpf" value="${esc(s.cpf || '')}"></label>
                 <label>Matrícula<input name="matricula" value="${esc(s.matricula || '')}"></label>
             </div>
             <div class="form-actions">
-                <button type="button" class="secondary" onclick="modal.close()">Cancelar</button>
+                <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
                 <button class="primary">Salvar</button>
             </div>
         </form>
@@ -507,23 +779,30 @@ window.openServidor = id => {
 
     $('#servidorForm').onsubmit = async e => {
         e.preventDefault();
+        const data = formData(e.target);
+        const save = payload => api(id ? `/api/servidores/${id}` : '/api/servidores', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
         try {
-            await api(id ? `/api/servidores/${id}` : '/api/servidores', {
-                method: id ? 'PATCH' : 'POST',
-                body: JSON.stringify(formData(e.target))
-            });
+            await save(data);
             $('#modal').close();
             await reload();
             showPage('servidores');
             toast('Servidor salvo.');
         } catch (x) {
+            if (x.data?.error === 'DUPLICATE') {
+                const details = x.data.duplicates.map(item => `${item.campo}: “${item.valor}” — ${item.servidor_nome} está cadastrado com esse dado.`).join('\n');
+                const proceed = await confirmDialog({ title: 'Dados repetidos encontrados', message: `${details}\n\nDeseja continuar mesmo assim?`, confirmLabel: 'Continuar mesmo assim', cancelLabel: 'Cancelar' });
+                if (!proceed) return;
+                try { data.confirmDuplicate = true; await save(data); $('#modal').close(); await reload(); showPage('servidores'); toast('Servidor salvo com dados repetidos.'); }
+                catch (error) { toast(error.message, true); }
+                return;
+            }
             toast(x.message, true);
         }
     };
 };
 
 window.deleteServidor = async id => {
-    if (!confirm('Excluir este servidor?')) return;
+    if (!await confirmDialog({ title: 'Excluir servidor?', message: 'O servidor será removido apenas se não possuir registros vinculados.', confirmLabel: 'Excluir servidor', danger: true })) return;
     try {
         await api(`/api/servidores/${id}`, { method: 'DELETE' });
         await reload();
@@ -563,7 +842,7 @@ window.openEvent = (tipo = 'ferias', id = null) => {
             <label>Alerta extra (opcional)<input type="date" name="alerta_extra" value="${evento.alerta_extra || ''}"></label>
             <label>Observações<textarea name="observacoes" rows="3">${esc(evento.observacoes || '')}</textarea></label>
             <div class="form-actions">
-                <button type="button" class="secondary" onclick="modal.close()">Cancelar</button>
+                <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
                 <button class="primary">Salvar registro</button>
             </div>
         </form>
@@ -617,7 +896,7 @@ window.openEvent = (tipo = 'ferias', id = null) => {
 };
 
 window.deleteEvent = async (id, archived) => {
-    if (!confirm('Excluir este registro permanentemente?')) return;
+    if (!await confirmDialog({ title: 'Excluir registro?', message: 'O registro será removido permanentemente e não poderá ser recuperado.', confirmLabel: 'Excluir registro', danger: true })) return;
     await api(`/api/eventos/${id}`, { method: 'DELETE' });
     await reload();
     showPage(archived ? 'arquivados' : 'dashboard');
@@ -644,7 +923,7 @@ window.openCreateUser = () => {
                 <label>Senha *<input type="password" name="password" minlength="8" required></label>
             </div>
             <div class="form-actions">
-                <button type="button" class="secondary" onclick="modal.close()">Cancelar</button>
+                <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
                 <button class="primary">Cadastrar</button>
             </div>
         </form>
@@ -689,7 +968,7 @@ window.editUser = u => {
             </div>
             <label>Nova senha (opcional)<input type="password" name="password" minlength="8"></label>
             <div class="form-actions">
-                <button type="button" class="secondary" onclick="modal.close()">Cancelar</button>
+                <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
                 <button class="primary">Salvar</button>
             </div>
         </form>
@@ -707,14 +986,14 @@ window.editUser = u => {
 };
 
 window.impersonate = async id => {
-    if (confirm('Entrar como este usuário? Para voltar ao master, clique no botão no topo da tela.')) {
+    if (await confirmDialog({ title: 'Acessar como este usuário?', message: 'Você passará a visualizar o sistema com as permissões desta conta. Para voltar ao master, use o botão no topo da tela.', confirmLabel: 'Acessar conta' })) {
         await api(`/api/admin/impersonate/${id}`, { method: 'POST' });
         await boot();
     }
 };
 
 window.deleteUser = async id => {
-    if (confirm('Excluir este usuário permanentemente?')) {
+    if (await confirmDialog({ title: 'Excluir usuário?', message: 'A conta será removida permanentemente. Os registros históricos serão preservados quando aplicável.', confirmLabel: 'Excluir usuário', danger: true })) {
         await api(`/api/admin/users/${id}`, { method: 'DELETE' });
         admin('users');
         toast('Usuário excluído.');

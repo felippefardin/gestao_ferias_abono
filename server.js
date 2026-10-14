@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const os = require('os');
+const { AsyncLocalStorage } = require('async_hooks');
 const nodemailer = require('nodemailer');
 const { DatabaseSync } = require('node:sqlite');
 
@@ -23,6 +24,7 @@ if (!fs.existsSync(databasePath) && databasePath !== legacyDatabasePath && fs.ex
   console.log(`Banco anterior transferido para: ${databasePath}`);
 }
 const db = new DatabaseSync(databasePath);
+const auditContext = new AsyncLocalStorage();
 db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;');
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
@@ -68,6 +70,11 @@ CREATE TABLE IF NOT EXISTS impersonations (
   FOREIGN KEY(master_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 `);
+// Migrações leves para instalações existentes.
+const servidorColumns = db.prepare('PRAGMA table_info(servidores)').all().map(column => column.name);
+if (!servidorColumns.includes('email')) db.exec('ALTER TABLE servidores ADD COLUMN email TEXT');
+const preferenceColumns = db.prepare('PRAGMA table_info(alert_preferences)').all().map(column => column.name);
+if (!preferenceColumns.includes('read_at')) db.exec('ALTER TABLE alert_preferences ADD COLUMN read_at TEXT');
 
 const iso = d => new Date(d).toISOString();
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -79,8 +86,20 @@ function verifyPassword(password, stored) {
   return key && crypto.timingSafeEqual(Buffer.from(key, 'hex'), actual);
 }
 function digest(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
+function localNetworkIp() {
+  const addresses=[];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const item of list || []) if (item.family === 'IPv4' && !item.internal && !item.address.startsWith('169.254.')) addresses.push(item.address);
+  }
+  return addresses.find(address=>!address.startsWith('192.168.56.')) || addresses[0] || '127.0.0.1';
+}
+function normalizedAuditIp(ip) {
+  const value=String(ip||'').replace(/^::ffff:/,'');
+  return ['127.0.0.1','::1',''].includes(value) ? localNetworkIp() : value;
+}
 function audit(userId, action, details, ip) {
-  db.prepare('INSERT INTO audit(user_id,action,details,ip) VALUES(?,?,?,?)').run(userId || null, action, JSON.stringify(details || {}), ip || '');
+  const contextIp=auditContext.getStore()?.ip;
+  db.prepare('INSERT INTO audit(user_id,action,details,ip) VALUES(?,?,?,?)').run(userId || null, action, JSON.stringify(details || {}), contextIp || normalizedAuditIp(ip));
 }
 
 const masterUsername = process.env.MASTER_USERNAME || 'felippe.andreata';
@@ -93,8 +112,16 @@ if (!db.prepare('SELECT id FROM users WHERE username=?').get(masterUsername)) {
   if (!process.env.MASTER_INITIAL_PASSWORD) console.log('Senha inicial temporária: TroqueAgora!2026');
 }
 
+app.set('trust proxy', ['loopback']);
 app.use(express.json({ limit: '1mb' }));
+app.use((req,res,next)=>{
+  const forwarded=String(req.headers['x-forwarded-for']||'').split(',')[0].trim();
+  const auditAddress=forwarded || normalizedAuditIp(req.socket.remoteAddress);
+  auditContext.run({ip:auditAddress},next);
+});
+app.get(['/public/app.js','/public/style.css','/public/fix.css'],(req,res)=>res.sendFile(path.join(__dirname,req.path)));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/public', express.static(path.join(__dirname, 'public')));
 
 function cookies(req) {
   return Object.fromEntries((req.headers.cookie || '').split(';').filter(Boolean).map(v => { const i=v.indexOf('='); return [v.slice(0,i).trim(), decodeURIComponent(v.slice(i+1))]; }));
@@ -147,19 +174,32 @@ app.post('/api/forgot', async (req,res)=>{
 });
 app.post('/api/reset',(req,res)=>{ const user=db.prepare('SELECT id FROM users WHERE email=?').get(req.body.email); if(!user) return res.status(400).json({error:'Código inválido.'}); const row=db.prepare('SELECT * FROM password_resets WHERE user_id=? AND used=0 AND expires_at>CURRENT_TIMESTAMP ORDER BY id DESC LIMIT 1').get(user.id); if(!row||row.code_hash!==digest(req.body.code||'')) return res.status(400).json({error:'Código inválido ou expirado.'}); if((req.body.password||'').length<8)return res.status(400).json({error:'A nova senha deve ter ao menos 8 caracteres.'}); db.prepare('UPDATE password_resets SET used=1 WHERE id=?').run(row.id); db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(req.body.password),user.id); audit(user.id,'RESET_PASSWORD',{},req.ip); res.json({ok:true}); });
 
+function servidorDuplicates({nome,email,cpf,matricula},excludeId=null){
+  const values=[['Nome',nome,'nome'],['E-mail',email,'email'],['CPF/documento',cpf,'cpf'],['Matrícula',matricula,'matricula']];
+  const found=[];
+  for(const [campo,value,column] of values){
+    const clean=String(value||'').trim(); if(!clean) continue;
+    const rows=db.prepare(`SELECT id,nome FROM servidores WHERE lower(trim(${column}))=lower(trim(?)) AND (? IS NULL OR id<>?)`).all(clean,excludeId,excludeId);
+    rows.forEach(row=>found.push({campo,valor:clean,servidor_id:row.id,servidor_nome:row.nome}));
+  }
+  return found;
+}
 app.get('/api/servidores',auth,(req,res)=>res.json(db.prepare('SELECT * FROM servidores ORDER BY nome').all()));
-app.post('/api/servidores',auth,(req,res)=>{ const {nome,funcao,cpf,matricula}=req.body;if(!nome?.trim())return res.status(400).json({error:'Nome é obrigatório.'}); const x=db.prepare('INSERT INTO servidores(nome,funcao,cpf,matricula) VALUES(?,?,?,?)').run(nome.trim(),funcao||null,cpf||null,matricula||null);audit(req.user.id,'CREATE_SERVIDOR',{id:Number(x.lastInsertRowid),nome},req.ip);res.json({id:Number(x.lastInsertRowid)}); });
-app.patch('/api/servidores/:id',auth,(req,res)=>{ const {nome,funcao,cpf,matricula}=req.body;if(!nome?.trim())return res.status(400).json({error:'Nome é obrigatório.'});db.prepare('UPDATE servidores SET nome=?,funcao=?,cpf=?,matricula=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(nome.trim(),funcao||null,cpf||null,matricula||null,req.params.id);audit(req.user.id,'UPDATE_SERVIDOR',{id:req.params.id},req.ip);res.json({ok:true}); });
+app.post('/api/servidores',auth,(req,res)=>{ const {nome,funcao,email,cpf,matricula,confirmDuplicate}=req.body;if(!nome?.trim())return res.status(400).json({error:'Nome é obrigatório.'});const duplicates=servidorDuplicates(req.body);if(duplicates.length&&!confirmDuplicate)return res.status(409).json({error:'DUPLICATE',duplicates}); const x=db.prepare('INSERT INTO servidores(nome,funcao,email,cpf,matricula) VALUES(?,?,?,?,?)').run(nome.trim(),funcao||null,email?.trim()||null,cpf||null,matricula||null);audit(req.user.id,'CREATE_SERVIDOR',{id:Number(x.lastInsertRowid),nome,duplicates:duplicates.map(d=>d.servidor_id)},req.ip);res.json({id:Number(x.lastInsertRowid)}); });
+app.patch('/api/servidores/:id',auth,(req,res)=>{ const {nome,funcao,email,cpf,matricula,confirmDuplicate}=req.body;if(!nome?.trim())return res.status(400).json({error:'Nome é obrigatório.'});const duplicates=servidorDuplicates(req.body,Number(req.params.id));if(duplicates.length&&!confirmDuplicate)return res.status(409).json({error:'DUPLICATE',duplicates});db.prepare('UPDATE servidores SET nome=?,funcao=?,email=?,cpf=?,matricula=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').run(nome.trim(),funcao||null,email?.trim()||null,cpf||null,matricula||null,req.params.id);audit(req.user.id,'UPDATE_SERVIDOR',{id:req.params.id,duplicates:duplicates.map(d=>d.servidor_id)},req.ip);res.json({ok:true}); });
 app.delete('/api/servidores/:id',auth,(req,res)=>{ try{db.prepare('DELETE FROM servidores WHERE id=?').run(req.params.id);audit(req.user.id,'DELETE_SERVIDOR',{id:req.params.id},req.ip);res.json({ok:true});}catch{res.status(409).json({error:'Este servidor possui registros. Mantenha-o para preservar o histórico.'});} });
 
-app.get('/api/eventos',auth,(req,res)=>{ const archived=req.query.archived==='1'; const op=archived?'<':'>='; res.json(db.prepare(`SELECT e.*,s.nome servidor_nome, CAST(julianday('now')-julianday(e.fim) AS INTEGER) dias_arquivado FROM eventos e JOIN servidores s ON s.id=e.servidor_id WHERE date(e.fim) ${op} date('now') ORDER BY e.inicio`).all()); });
-app.get('/api/alertas',auth,(req,res)=>res.json(db.prepare(`SELECT e.*,s.nome servidor_nome, CAST(julianday(e.inicio)-julianday('now') AS INTEGER) dias FROM eventos e JOIN servidores s ON s.id=e.servidor_id LEFT JOIN alert_preferences p ON p.evento_id=e.id AND p.user_id=? WHERE COALESCE(p.stopped,0)=0 AND date(e.fim)>=date('now') AND ((date(e.inicio) BETWEEN date('now') AND date('now','+20 day')) OR date(e.alerta_extra)=date('now')) ORDER BY e.inicio`).all(req.user.id)));
+app.get('/api/eventos',auth,(req,res)=>{ const archived=req.query.archived==='1'; const op=archived?'<':'>='; res.json(db.prepare(`SELECT e.*,s.nome servidor_nome,u.username criado_por, CASE WHEN e.created_by=? THEN 1 ELSE 0 END pode_editar, CAST(julianday('now')-julianday(e.fim) AS INTEGER) dias_arquivado FROM eventos e JOIN servidores s ON s.id=e.servidor_id LEFT JOIN users u ON u.id=e.created_by WHERE date(e.fim) ${op} date('now') ORDER BY e.inicio`).all(req.user.id)); });
+app.get('/api/alertas',auth,(req,res)=>res.json(db.prepare(`SELECT e.*,s.nome servidor_nome,CASE WHEN p.read_at IS NULL THEN 0 ELSE 1 END lido,CAST(julianday(e.inicio)-julianday('now') AS INTEGER) dias FROM eventos e JOIN servidores s ON s.id=e.servidor_id LEFT JOIN alert_preferences p ON p.evento_id=e.id AND p.user_id=? WHERE e.created_by=? AND COALESCE(p.stopped,0)=0 AND date(e.fim)>=date('now') AND ((date(e.inicio) BETWEEN date('now') AND date('now','+20 day')) OR date(e.alerta_extra)>=date('now')) ORDER BY lido,COALESCE(e.alerta_extra,e.inicio),e.inicio`).all(req.user.id,req.user.id)));
 app.post('/api/alertas/:id/responder',auth,(req,res)=>{const acao=req.body.acao;if(!['manter','parar'].includes(acao))return res.status(400).json({error:'Resposta de alerta inválida.'});const evento=db.prepare('SELECT id FROM eventos WHERE id=?').get(req.params.id);if(!evento)return res.status(404).json({error:'Registro não encontrado.'});db.prepare(`INSERT INTO alert_preferences(evento_id,user_id,stopped,updated_at) VALUES(?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(evento_id,user_id) DO UPDATE SET stopped=excluded.stopped,updated_at=CURRENT_TIMESTAMP`).run(evento.id,req.user.id,acao==='parar'?1:0);audit(req.user.id,acao==='parar'?'STOP_ALERT':'KEEP_ALERT',{evento_id:evento.id},req.ip);res.json({ok:true});});
+app.post('/api/alertas/:id/lido',auth,(req,res)=>{const evento=db.prepare('SELECT id FROM eventos WHERE id=? AND created_by=?').get(req.params.id,req.user.id);if(!evento)return res.status(404).json({error:'Alerta não encontrado.'});db.prepare(`INSERT INTO alert_preferences(evento_id,user_id,stopped,read_at,updated_at) VALUES(?,?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(evento_id,user_id) DO UPDATE SET read_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP`).run(evento.id,req.user.id);res.json({ok:true});});
+app.post('/api/alertas/ler-todos',auth,(req,res)=>{const ids=db.prepare(`SELECT e.id FROM eventos e WHERE e.created_by=? AND date(e.fim)>=date('now') AND ((date(e.inicio) BETWEEN date('now') AND date('now','+20 day')) OR date(e.alerta_extra)>=date('now'))`).all(req.user.id);const save=db.prepare(`INSERT INTO alert_preferences(evento_id,user_id,stopped,read_at,updated_at) VALUES(?,?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP) ON CONFLICT(evento_id,user_id) DO UPDATE SET read_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP`);db.exec('BEGIN');try{ids.forEach(({id})=>save.run(id,req.user.id));db.exec('COMMIT');}catch(error){db.exec('ROLLBACK');throw error;}res.json({ok:true});});
+app.delete('/api/alertas/:id',auth,(req,res)=>{const evento=db.prepare('SELECT id FROM eventos WHERE id=? AND created_by=?').get(req.params.id,req.user.id);if(!evento)return res.status(404).json({error:'Alerta não encontrado.'});db.prepare(`INSERT INTO alert_preferences(evento_id,user_id,stopped,updated_at) VALUES(?,?,1,CURRENT_TIMESTAMP) ON CONFLICT(evento_id,user_id) DO UPDATE SET stopped=1,updated_at=CURRENT_TIMESTAMP`).run(evento.id,req.user.id);audit(req.user.id,'DELETE_ALERT',{evento_id:evento.id},req.ip);res.json({ok:true});});
 function eventConflicts(inicio,fim,excludeId=null){return db.prepare(`SELECT e.id,s.nome servidor_nome,e.tipo,e.inicio,e.fim FROM eventos e JOIN servidores s ON s.id=e.servidor_id WHERE date(e.inicio)<=date(?) AND date(e.fim)>=date(?) AND (? IS NULL OR e.id<>?) ORDER BY e.inicio`).all(fim,inicio,excludeId,excludeId);}
 app.post('/api/eventos/check',auth,(req,res)=>res.json(eventConflicts(req.body.inicio,req.body.fim,req.body.id||null)));
 app.post('/api/eventos',auth,(req,res)=>{ const {servidor_id,tipo,inicio,fim,alerta_extra,observacoes,confirmConflict}=req.body;if(!servidor_id||!['ferias','abono'].includes(tipo)||!inicio||!fim||fim<inicio)return res.status(400).json({error:'Dados ou período inválidos.'});const conflicts=eventConflicts(inicio,fim);if(conflicts.length&&!confirmConflict)return res.status(409).json({error:'CONFLICT',conflicts});const x=db.prepare('INSERT INTO eventos(servidor_id,tipo,inicio,fim,alerta_extra,observacoes,created_by) VALUES(?,?,?,?,?,?,?)').run(servidor_id,tipo,inicio,fim,alerta_extra||null,observacoes||null,req.user.id);audit(req.user.id,'CREATE_EVENTO',{id:Number(x.lastInsertRowid),tipo,servidor_id,conflicts:conflicts.map(c=>c.id)},req.ip);res.json({id:Number(x.lastInsertRowid)}); });
-app.patch('/api/eventos/:id',auth,(req,res)=>{const {servidor_id,tipo,inicio,fim,alerta_extra,observacoes,confirmConflict}=req.body;if(!servidor_id||!['ferias','abono'].includes(tipo)||!inicio||!fim||fim<inicio)return res.status(400).json({error:'Dados ou período inválidos.'});const current=db.prepare('SELECT id FROM eventos WHERE id=?').get(req.params.id);if(!current)return res.status(404).json({error:'Registro não encontrado.'});const conflicts=eventConflicts(inicio,fim,Number(req.params.id));if(conflicts.length&&!confirmConflict)return res.status(409).json({error:'CONFLICT',conflicts});db.prepare('UPDATE eventos SET servidor_id=?,tipo=?,inicio=?,fim=?,alerta_extra=?,observacoes=? WHERE id=?').run(servidor_id,tipo,inicio,fim,alerta_extra||null,observacoes||null,req.params.id);db.prepare('DELETE FROM alert_preferences WHERE evento_id=?').run(req.params.id);audit(req.user.id,'UPDATE_EVENTO',{id:Number(req.params.id),tipo,servidor_id,conflicts:conflicts.map(c=>c.id)},req.ip);res.json({ok:true});});
-app.delete('/api/eventos/:id',auth,(req,res)=>{db.prepare('DELETE FROM eventos WHERE id=?').run(req.params.id);audit(req.user.id,'DELETE_EVENTO',{id:req.params.id},req.ip);res.json({ok:true});});
+app.patch('/api/eventos/:id',auth,(req,res)=>{const {servidor_id,tipo,inicio,fim,alerta_extra,observacoes,confirmConflict}=req.body;if(!servidor_id||!['ferias','abono'].includes(tipo)||!inicio||!fim||fim<inicio)return res.status(400).json({error:'Dados ou período inválidos.'});const current=db.prepare('SELECT id,created_by FROM eventos WHERE id=?').get(req.params.id);if(!current)return res.status(404).json({error:'Registro não encontrado.'});if(current.created_by!==req.user.id)return res.status(403).json({error:'Somente o usuário que criou este registro pode editá-lo.'});const conflicts=eventConflicts(inicio,fim,Number(req.params.id));if(conflicts.length&&!confirmConflict)return res.status(409).json({error:'CONFLICT',conflicts});db.prepare('UPDATE eventos SET servidor_id=?,tipo=?,inicio=?,fim=?,alerta_extra=?,observacoes=? WHERE id=? AND created_by=?').run(servidor_id,tipo,inicio,fim,alerta_extra||null,observacoes||null,req.params.id,req.user.id);db.prepare('DELETE FROM alert_preferences WHERE evento_id=?').run(req.params.id);audit(req.user.id,'UPDATE_EVENTO',{id:Number(req.params.id),tipo,servidor_id,conflicts:conflicts.map(c=>c.id)},req.ip);res.json({ok:true});});
+app.delete('/api/eventos/:id',auth,(req,res)=>{const current=db.prepare('SELECT id,created_by FROM eventos WHERE id=?').get(req.params.id);if(!current)return res.status(404).json({error:'Registro não encontrado.'});if(current.created_by!==req.user.id)return res.status(403).json({error:'Somente o usuário que criou este registro pode excluí-lo.'});db.prepare('DELETE FROM eventos WHERE id=? AND created_by=?').run(req.params.id,req.user.id);audit(req.user.id,'DELETE_EVENTO',{id:req.params.id},req.ip);res.json({ok:true});});
 
 app.get('/api/admin/users',auth,master,(req,res)=>res.json(db.prepare('SELECT id,username,email,cpf,matricula,role,active,created_at FROM users ORDER BY username').all()));
 app.post('/api/admin/users',auth,master,(req,res)=>{const {username,email,cpf,matricula,password,role}=req.body;if(!username?.trim()||!password||password.length<8||!['admin','master'].includes(role))return res.status(400).json({error:'Informe usuário, perfil e senha com ao menos 8 caracteres.'});try{const x=db.prepare('INSERT INTO users(username,email,cpf,matricula,password_hash,role,active) VALUES(?,?,?,?,?,?,1)').run(username.trim(),email?.trim()||null,cpf?.trim()||null,matricula?.trim()||null,hashPassword(password),role);audit(req.user.id,'ADMIN_CREATE_USER',{target:Number(x.lastInsertRowid),username:username.trim(),role},req.ip);res.json({id:Number(x.lastInsertRowid)});}catch{res.status(409).json({error:'Usuário, e-mail, CPF ou matrícula já cadastrado.'});}});

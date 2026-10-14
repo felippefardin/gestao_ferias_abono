@@ -1,0 +1,17 @@
+INSTALAÇÃO DA VERSÃO ATUALIZADA
+
+1. Pare o serviço atual fechando a janela do iniciar.bat.
+2. Mantenha o Apache do XAMPP instalado.
+3. Copie todo o conteúdo desta pasta para:
+   C:\xampp\htdocs\gestao-ferias-abonos
+4. Quando o Windows perguntar, escolha substituir os arquivos existentes.
+5. Não apague a pasta data existente. Ela contém os registros atuais.
+6. Não apague a pasta node_modules existente.
+7. Inicie o sistema usando ABRIR-SISTEMA-NO-CHROME.bat.
+
+Endereço correto pelo XAMPP:
+http://localhost/gestao-ferias-abonos/
+
+Todos os usuários visualizam férias e abonos. Somente a conta que criou cada
+registro pode editar ou excluir esse registro. A restrição também é validada
+no servidor.

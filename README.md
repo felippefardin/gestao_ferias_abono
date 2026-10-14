@@ -4,9 +4,10 @@ Aplicação local para coordenadores e gestores administrarem servidores, féria
 
 ## Como iniciar
 
-1. Clique duas vezes em `iniciar.bat`.
-2. No próprio computador, abra `http://localhost:3000`.
-3. Em outra máquina da mesma rede, abra o endereço `http://IP-DESTE-COMPUTADOR:3000` mostrado na janela ao iniciar.
+1. Inicie o Apache no painel do XAMPP.
+2. Clique duas vezes em `ABRIR-SISTEMA-NO-CHROME.bat` para iniciar o serviço e abrir o Google Chrome.
+3. No próprio computador, use `http://localhost/gestao-ferias-abonos/`.
+4. Em outra máquina da mesma rede, use `http://NOME-DO-COMPUTADOR/gestao-ferias-abonos/`.
 4. Se o Windows perguntar, permita o acesso do Node.js apenas em **redes privadas**.
 
 Primeiro acesso master:
@@ -14,7 +15,7 @@ Primeiro acesso master:
 - Usuário: `felippe.andreata`
 - Senha temporária: `TroqueAgora!2026`
 
-Endereço principal na rede: `http://03-D000363:3000`
+Endereço principal na rede: `http://03-D000363/gestao-ferias-abonos/`
 
 Altere a senha imediatamente em **Meu perfil**.
 

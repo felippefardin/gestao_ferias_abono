@@ -1,0 +1,3 @@
+@echo off
+setlocal
+powershell.exe -NoProfile -WindowStyle Hidden -Command "$online=Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if(-not $online){Start-Process -FilePath '%~dp0iniciar.bat' -WindowStyle Minimized; Start-Sleep -Seconds 4}; $chrome='C:\Program Files\Google\Chrome\Application\chrome.exe'; if(Test-Path -LiteralPath $chrome){Start-Process -FilePath $chrome -ArgumentList '--new-window','http://localhost/gestao-ferias-abonos/'}else{Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Google Chrome não foi encontrado neste computador.','Gestão de Férias e Abonos')|Out-Null}"
