@@ -1,3 +1,50 @@
 [hidden] {
   display: none !important;
 }
+/* Tutorial: contraste garantido no modo escuro. Mantido neste arquivo,
+   carregado por último, para prevalecer sobre estilos antigos em cache. */
+body.dark-mode .tutorial-section,
+body.dark-mode .tutorial-index a {
+    color: #d8e3ea !important;
+    background: #18232d !important;
+    border-color: #3b4b58 !important;
+}
+
+body.dark-mode .tutorial-section h1,
+body.dark-mode .tutorial-section h2,
+body.dark-mode .tutorial-section h3,
+body.dark-mode .tutorial-section strong,
+body.dark-mode .tutorial-faq summary {
+    color: #f7fafc !important;
+}
+
+body.dark-mode .tutorial-section p,
+body.dark-mode .tutorial-section li,
+body.dark-mode .tutorial-section ol,
+body.dark-mode .tutorial-section ul {
+    color: #d3dee6 !important;
+}
+
+body.dark-mode .tutorial-grid article,
+body.dark-mode .tutorial-faq details {
+    color: #d3dee6 !important;
+    background: #22323f !important;
+    border-color: #3b4b58 !important;
+}
+
+body.dark-mode .tutorial-note {
+    color: #d9f5f2 !important;
+    background: #163c3b !important;
+    border: 1px solid #2d6d68 !important;
+}
+
+body.dark-mode .tutorial-note p,
+body.dark-mode .tutorial-note strong,
+body.dark-mode .tutorial-note i {
+    color: #d9f5f2 !important;
+}
+
+body.dark-mode .tutorial-section code {
+    color: #9fe9e4 !important;
+    background: #0d161d !important;
+}

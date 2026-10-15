@@ -7,12 +7,7 @@ if not exist "%DESTINO%" (
   pause
   exit /b 1
 )
-copy /Y "%~dp0server.js" "%DESTINO%\server.js" >nul
-copy /Y "%~dp0index.php" "%DESTINO%\index.php" >nul
-copy /Y "%~dp0public\index.html" "%DESTINO%\public\index.html" >nul
-copy /Y "%~dp0public\app.js" "%DESTINO%\public\app.js" >nul
-copy /Y "%~dp0public\style.css" "%DESTINO%\public\style.css" >nul
-copy /Y "%~dp0public\fix.css" "%DESTINO%\public\fix.css" >nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $src='%~dp0'; $dst='%DESTINO%'; @('server.js','index.php','public\index.html','public\app.js','public\style.css','public\fix.css') | ForEach-Object { $from=Join-Path $src $_; $to=Join-Path $dst $_; New-Item -ItemType Directory -Path (Split-Path $to) -Force | Out-Null; Copy-Item -LiteralPath $from -Destination $to -Force }"
 if errorlevel 1 (
   echo Nao foi possivel atualizar. Clique com o botao direito e escolha Executar como administrador.
   pause

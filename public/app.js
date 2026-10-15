@@ -2,7 +2,7 @@ const $ = (s, e = document) => e.querySelector(s); const $$ = (s, e = document) 
 
 const pathMatch = location.pathname.match(/^(.*?\/gestao-ferias-abonos)(?:\/|$)/i);
 const API_BASE = pathMatch ? pathMatch[1] : '';
-const state = { me: null, servidores: [], eventos: [], arquivados: [], alertas: [], auditoria: [] };
+const state = { me: null, servidores: [], eventos: [], arquivados: [], alertas: [], auditoria: [], auditAccessUsers: [], setores: [], adminUsers: [], calendarDate: new Date() };
 
 const fmt = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -157,6 +157,7 @@ async function boot() {
         $('#avatar').textContent = state.me.username[0].toUpperCase();
         $('#userRole').textContent = state.me.role === 'master' ? 'Master administrador' : 'Administrador';
         $('#adminNav').hidden = state.me.role !== 'master';
+        $('#auditNav').hidden = !state.me.can_view_audit;
         
         // Exibe banner se estiver personificando outro usuário
         const impersonateBanner = $('#impersonateBanner');
@@ -172,19 +173,43 @@ async function boot() {
         $('#app').hidden = true;     } }  async function reload() {     [state.servidores, state.eventos, state.arquivados, state.alertas] = await Promise.all([         api('/api/servidores'),         api('/api/eventos'),         api('/api/eventos?archived=1'),         api('/api/alertas')     ]); renderAlertBell(); }  $$('[data-page]').forEach(b => b.onclick = () => showPage(b.dataset.page));
 if ($('#menuBtn')) $('#menuBtn').onclick = () => $('aside').classList.toggle('open');
 
-$('#logout').onclick = async () => {
-    await api('/api/logout', { method: 'POST' });
-    location.reload();
+$('#logout').onclick = async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+
+    try {
+        await api('/api/logout', { method: 'POST' });
+    } catch (error) {
+        // Mesmo com a sessão já expirada, sair deve sempre levar à tela de acesso.
+        console.warn('Não foi possível encerrar a sessão no servidor:', error);
+    } finally {
+        state.me = null;
+        $('#app').hidden = true;
+        $('#auth').hidden = false;
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        window.location.assign(`${API_BASE || ''}/`);
+    }
 };
 
 if ($('#btnRestoreMaster')) {
-    $('#btnRestoreMaster').onclick = async () => {         await api('/api/admin/restore-master', { method: 'POST' });         await boot();     }; }  const titles = {     dashboard: 'Visão geral',     servidores: 'Cadastro de servidores',     ferias: 'Férias',     abono: 'Abonos',     arquivados: 'Arquivados',     auditoria: 'Auditoria',     perfil: 'Meu perfil',     admin: 'Administração' };  function showPage(page) {     $$('nav [data-page]').forEach(x => x.classList.toggle('active', x.dataset.page === page));
+    $('#btnRestoreMaster').onclick = async () => {         await api('/api/admin/restore-master', { method: 'POST' });         await boot();     }; }  const titles = {     dashboard: 'Visão geral',     servidores: 'Cadastro de servidores',     ferias: 'Férias',     abono: 'Abonos',     calendario: 'Calendário',     relatorios: 'Relatórios gerenciais',     estrutura: 'Setores',     arquivados: 'Arquivados',     tutorial: 'Tutorial',     auditoria: 'Auditoria',     perfil: 'Meu perfil',     admin: 'Administração' };  async function showPage(page) {     if (page === 'auditoria' && !state.me?.can_view_audit) page = 'dashboard';     $$('nav [data-page]').forEach(x => x.classList.toggle('active', x.dataset.page === page));
     if ($('#pageTitle')) $('#pageTitle').textContent = titles[page] || 'Gestão';
     $('aside').classList.remove('open');
     
-    const pageRenderers = { dashboard, servidores, eventos, arquivados, auditoria, perfil, admin };
+    const pageRenderers = { dashboard, servidores, eventos, calendario, relatorios, estrutura, arquivados, tutorial, auditoria, perfil, admin };
     const renderer = pageRenderers[page === 'ferias' || page === 'abono' ? 'eventos' : page];
-    if (renderer) renderer(page);
+    if (!renderer) return;
+    const content = $('#content');
+    content.innerHTML = '<div class="page"><div class="card empty">Carregando página...</div></div>';
+    try {
+        await renderer(page);
+    } catch (error) {
+        console.error(`Falha ao abrir a página ${page}:`, error);
+        content.innerHTML = `<div class="page"><div class="card empty"><h3>Não foi possível abrir esta página</h3><p>${esc(error.message)}</p><p>Reinicie o servidor do sistema e atualize o navegador com <strong>Ctrl + F5</strong>.</p></div></div>`;
+        toast(error.message, true);
+    }
 }
 
 /* =========================================================
@@ -215,6 +240,7 @@ function eventRows(items, archived = false) {
                     <td><span class="owner-chip"><i class="bi bi-person-circle" aria-hidden="true"></i>${esc(e.criado_por || 'Conta removida')}</span></td>
                     ${archived ? `<td>${e.dias_arquivado > 1826 ? '<span class="redtext">Mais de 5 anos</span>' : Math.max(0, Math.floor(e.dias_arquivado / 365)) + ' ano(s)'}</td>` : ''}
                     <td class="actions">
+                        <button class="icon-btn" onclick="openAttachments(${e.id})" title="Anexos"><i class="bi bi-paperclip"></i><span>Anexos</span></button>
                         ${e.pode_editar ? `${!archived ? `<button class="icon-btn action-edit" onclick="openEvent('${e.tipo}', ${e.id})" title="Editar este registro"><i class="bi bi-pencil-square" aria-hidden="true"></i><span>Editar</span></button>` : ''}<button class="icon-btn action-delete" onclick="deleteEvent(${e.id},${archived})" title="Excluir este registro"><i class="bi bi-trash3" aria-hidden="true"></i><span>Excluir</span></button>` : '<span class="readonly-label" title="Somente quem criou pode alterar"><i class="bi bi-lock-fill" aria-hidden="true"></i> Somente leitura</span>'}
                     </td>
                 </tr>
@@ -285,6 +311,7 @@ function servidores() {
             </div>
             <div class="section-actions">
                 <button type="button" class="secondary" onclick="showPage('dashboard')"><i class="bi bi-arrow-left" aria-hidden="true"></i> Voltar</button>
+                <button type="button" class="secondary" onclick="openImportServers()"><i class="bi bi-upload"></i> Importar CSV</button>
                 <button class="primary" onclick="openServidor()">+ Cadastrar servidor</button>
             </div>
         </div>
@@ -298,6 +325,8 @@ function servidores() {
                         <th>E-mail</th>
                         <th>CPF</th>
                         <th>Matrícula</th>
+                        <th>Setor</th>
+                        <th>Saldos</th>
                         <th>Ações</th>
                     </tr>
                 </thead>
@@ -309,7 +338,10 @@ function servidores() {
                             <td>${esc(s.email || '—')}</td>
                             <td>${esc(s.cpf || '—')}</td>
                             <td>${esc(s.matricula || '—')}</td>
+                            <td>${esc(s.setor_nome || 'Sem setor')}</td>
+                            <td><span class="balance-chip">Férias: ${Number(s.ferias_total)-Number(s.ferias_usadas)} dia(s)</span><br><span class="balance-chip">Abono ${new Date().getFullYear()}: ${Number(s.abono_total)-Number(s.abonos_usados)} dia(s)</span></td>
                             <td class="actions">
+                                <button class="icon-btn" onclick="openServidorHistory(${s.id})">Histórico</button>
                                 <button class="icon-btn" onclick="openServidor(${s.id})">Editar</button>
                                 <button class="icon-btn" onclick="deleteServidor(${s.id})">Excluir</button>
                             </td>
@@ -353,14 +385,109 @@ function arquivados() {
     </div>`;
 }
 
+function calendario() {
+    const current = state.calendarDate;
+    const year = current.getFullYear(), month = current.getMonth();
+    const first = new Date(year, month, 1), last = new Date(year, month + 1, 0);
+    const cells = [];
+    for (let i = 0; i < first.getDay(); i++) cells.push(null);
+    for (let day = 1; day <= last.getDate(); day++) cells.push(new Date(year, month, day));
+    const allEvents = [...state.eventos, ...state.arquivados];
+    $('#content').innerHTML = `<div class="page"><div class="section-head"><div><h3>Calendário da equipe</h3><small>Férias em amarelo e abonos em azul.</small></div><div class="section-actions"><button class="secondary" onclick="changeCalendarMonth(-1)">‹ Anterior</button><strong>${current.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</strong><button class="secondary" onclick="changeCalendarMonth(1)">Próximo ›</button></div></div><div class="calendar-week">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d=>`<strong>${d}</strong>`).join('')}</div><div class="calendar-grid">${cells.map(date=>{if(!date)return '<div class="calendar-day empty-day"></div>';const iso=date.toISOString().slice(0,10);const items=allEvents.filter(e=>e.inicio<=iso&&e.fim>=iso);return `<div class="calendar-day ${iso===new Date().toISOString().slice(0,10)?'today':''}"><b>${date.getDate()}</b>${items.map(e=>`<span class="calendar-event ${e.tipo}" title="${esc(e.servidor_nome)}: ${fmt(e.inicio)} a ${fmt(e.fim)}">${esc(e.servidor_nome)}</span>`).join('')}</div>`;}).join('')}</div></div>`;
+}
+window.changeCalendarMonth = delta => { state.calendarDate = new Date(state.calendarDate.getFullYear(), state.calendarDate.getMonth()+delta, 1); calendario(); };
+
+async function relatorios() {
+    const [summary, backup] = await Promise.all([api('/api/relatorios/resumo'),api('/api/backup/status')]);
+    const active = Object.fromEntries(summary.ativos.map(x=>[x.tipo,x.quantidade]));
+    $('#content').innerHTML = `<div class="page"><div class="section-head"><div><h3>Relatórios gerenciais</h3><small>Indicadores consolidados para acompanhamento.</small></div><button class="secondary" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button></div><div class="stats"><div class="stat"><small>Servidores</small><strong>${summary.totalServidores}</strong></div><div class="stat"><small>Férias ativas/futuras</small><strong>${active.ferias||0}</strong></div><div class="stat"><small>Abonos ativos/futuros</small><strong>${active.abono||0}</strong></div><div class="stat ${backup.ok?'':'backup-warning'}"><small>Último backup</small><strong>${backup.latest?new Date(backup.latest.modified).toLocaleDateString('pt-BR'):'Pendente'}</strong></div></div><div class="report-grid"><section class="card"><h3>Registros por mês</h3><table><thead><tr><th>Mês</th><th>Tipo</th><th>Registros</th><th>Dias</th></tr></thead><tbody>${summary.porMes.map(x=>`<tr><td>${esc(x.mes)}</td><td>${x.tipo==='ferias'?'Férias':'Abono'}</td><td>${x.quantidade}</td><td>${Math.round(x.dias||0)}</td></tr>`).join('')}</tbody></table></section><section class="card"><h3>Resumo por setor</h3><table><thead><tr><th>Setor</th><th>Servidores</th><th>Registros</th></tr></thead><tbody>${summary.porSetor.map(x=>`<tr><td>${esc(x.setor)}</td><td>${x.servidores}</td><td>${x.registros}</td></tr>`).join('')}</tbody></table><h3>Status do backup</h3><p class="${backup.ok?'success-text':'redtext'}">${esc(backup.message)}</p><small>${esc(backup.destination)}</small></section></div></div>`;
+}
+
+async function estrutura() {
+    const data = await api('/api/estrutura'); state.setores=data.setores;
+    $('#content').innerHTML=`<div class="page"><div class="section-head"><div><h3>Setores</h3><small>Organize os servidores por setor para facilitar filtros e relatórios.</small></div></div><section class="card" style="max-width:900px"><h3>Novo setor</h3><form id="setorForm"><label>Nome<input name="nome" required></label><button class="primary">Adicionar setor</button></form><div class="structure-list">${state.setores.map(x=>`<div><span>${esc(x.nome)}</span><button type="button" class="icon-btn" onclick="deleteStructure('setores',${x.id})">Excluir</button></div>`).join('')||'<small>Nenhum setor.</small>'}</div></section></div>`;
+    $('#setorForm').onsubmit=async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;try{await api('/api/setores',{method:'POST',body:JSON.stringify(formData(e.target))});toast('Setor cadastrado.');await estrutura();}catch(error){toast(error.message,true);}finally{button.disabled=false;}};
+}
+window.deleteStructure=async(type,id)=>{if(await confirmDialog({message:'Deseja excluir este setor? Os servidores permanecerão cadastrados, mas ficarão sem setor.',confirmLabel:'Excluir',danger:true})){try{await api(`/api/${type}/${id}`,{method:'DELETE'});await reload();await estrutura();toast('Setor excluído.');}catch(error){toast(error.message,true);}}};
+
+window.openServidorHistory=async id=>{try{const data=await api(`/api/servidores/${id}/historico`);const s=data.servidor;modal(`<h2>Histórico de ${esc(s.nome)}</h2><div class="history-summary"><span><strong>Setor</strong>${esc(s.setor_nome||'Sem setor')}</span><span><strong>Férias</strong>${s.ferias_total} dias de direito</span><span><strong>Abono anual</strong>${s.abono_total} dias por ano</span></div><div class="table-wrap">${data.eventos.length?`<table><thead><tr><th>Tipo</th><th>Período</th><th>Observações</th><th>Anexos</th></tr></thead><tbody>${data.eventos.map(e=>`<tr><td>${e.tipo==='ferias'?'Férias':`Abono ${e.inicio.slice(0,4)}`}</td><td>${fmt(e.inicio)} a ${fmt(e.fim)}</td><td>${esc(e.observacoes||'—')}</td><td><button class="icon-btn" onclick="closeModal();openAttachments(${e.id})">${e.anexos} anexo(s)</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">Nenhum registro.</div>'}</div>`);}catch(error){toast(error.message,true);}};
+
+window.openImportServers=()=>{modal(`<h2>Importar servidores por CSV</h2><p>Use as colunas: <code>nome,funcao,email,cpf,matricula,ferias_total,abono_total</code>.</p><form id="importForm"><label>Arquivo CSV<input type="file" id="csvFile" accept=".csv,text/csv" required></label><div class="form-actions"><button type="button" class="secondary" onclick="closeModal()">Cancelar</button><button class="primary">Importar</button></div></form>`);$('#importForm').onsubmit=async e=>{e.preventDefault();const file=$('#csvFile').files[0];const text=await file.text();const lines=text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(Boolean);const sep=lines[0].includes(';')?';':',';const headers=lines.shift().split(sep).map(x=>x.trim().toLowerCase());const rows=lines.map(line=>{const values=line.split(sep);return Object.fromEntries(headers.map((h,i)=>[h,(values[i]||'').trim()]));});const result=await api('/api/servidores/importar',{method:'POST',body:JSON.stringify({rows})});closeModal();await reload();servidores();toast(`${result.imported} importado(s); ${result.skipped} ignorado(s).`);};};
+
+window.openAttachments=async eventoId=>{const items=await api(`/api/eventos/${eventoId}/anexos`);modal(`<h2>Anexos do registro</h2><form id="attachmentForm"><label>Adicionar arquivo (máximo 5 MB)<input type="file" id="attachmentFile" required></label><button class="primary">Enviar anexo</button></form><div class="attachment-list">${items.map(a=>`<div><a href="${API_BASE}/api/anexos/${a.id}/download" target="_blank">${esc(a.nome_original)}</a><small>${Math.ceil(a.tamanho/1024)} KB</small><button class="icon-btn" onclick="deleteAttachment(${a.id},${eventoId})">Excluir</button></div>`).join('')||'<p class="empty">Nenhum anexo.</p>'}</div>`);$('#attachmentForm').onsubmit=async e=>{e.preventDefault();const file=$('#attachmentFile').files[0];if(file.size>5*1024*1024)return toast('O arquivo deve ter no máximo 5 MB.',true);const data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file);});await api(`/api/eventos/${eventoId}/anexos`,{method:'POST',body:JSON.stringify({nome:file.name,data})});toast('Anexo enviado.');openAttachments(eventoId);};};
+window.deleteAttachment=async(id,eventoId)=>{if(await confirmDialog({message:'Excluir este anexo?',confirmLabel:'Excluir',danger:true})){await api(`/api/anexos/${id}`,{method:'DELETE'});openAttachments(eventoId);}};
+
+function tutorial() {
+    const topics = [
+        ['inicio', 'Primeiros passos'], ['servidores', 'Servidores'], ['registros', 'Férias e abonos'],
+        ['alertas', 'Alertas'], ['relatorios', 'Relatórios'], ['estrutura', 'Setores'], ['perfil', 'Meu perfil'],
+        ['administracao', 'Administração'], ['auditoria', 'Auditoria'], ['backup', 'Backup'], ['problemas', 'Solução de problemas']
+    ];
+    $('#content').innerHTML = `
+    <div class="page tutorial-page">
+        <section class="tutorial-hero">
+            <div><span class="tutorial-kicker">Central de ajuda</span><h1>Como usar o Gestão de Férias e Abonos</h1><p>Consulte as instruções completas para cadastrar pessoas, registrar períodos, acompanhar alertas e administrar o sistema.</p></div>
+            <i class="bi bi-book-half" aria-hidden="true"></i>
+        </section>
+        <nav class="tutorial-index" aria-label="Tópicos do tutorial">
+            ${topics.map(([id, label]) => `<a href="#tutorial-${id}">${label}</a>`).join('')}
+        </nav>
+
+        <section class="tutorial-section" id="tutorial-inicio"><h2><span>1</span> Primeiros passos</h2><div class="tutorial-grid"><article><h3>Entrar</h3><ol><li>Informe usuário, e-mail, CPF ou matrícula.</li><li>Digite sua senha.</li><li>Clique em <strong>Entrar</strong>.</li></ol></article><article><h3>Navegação e aparência</h3><p>Use o menu lateral para abrir cada módulo. No cabeçalho, use <strong>A+</strong>, <strong>A-</strong> e <strong>A</strong> para ajustar a fonte e <strong>Modo escuro</strong> para trocar o tema.</p></article><article><h3>Recuperar senha</h3><ol><li>Clique em <strong>Esqueci minha senha</strong>.</li><li>Informe o e-mail cadastrado.</li><li>Digite o código recebido e cadastre uma nova senha.</li></ol></article></div></section>
+
+        <section class="tutorial-section" id="tutorial-servidores"><h2><span>2</span> Cadastrar servidores</h2><ol><li>Abra <strong>Servidores</strong>.</li><li>Clique em <strong>Cadastrar servidor</strong>.</li><li>Informe dados pessoais, setor e os direitos de férias e abonos.</li><li>Clique em <strong>Salvar</strong>.</li></ol><p>O direito a abono é anual: vale de 1º de janeiro a 31 de dezembro e não acumula para o ano seguinte. Use <strong>Importar CSV</strong> para cadastrar várias pessoas e <strong>Histórico</strong> para consultar os registros individuais.</p><div class="tutorial-note"><i class="bi bi-info-circle-fill"></i><p>O sistema avisa quando encontra dados semelhantes e impede lançamentos acima do saldo disponível no respectivo ano. Servidores com registros vinculados não são excluídos, preservando o histórico.</p></div></section>
+
+        <section class="tutorial-section" id="tutorial-registros"><h2><span>3</span> Registrar férias e abonos</h2><ol><li>Abra <strong>Férias</strong> ou <strong>Abonos</strong>, ou use <strong>Novo registro</strong>.</li><li>Selecione o servidor e o tipo do registro.</li><li>Informe as datas inicial e final.</li><li>Adicione alerta extra e observações, se necessário.</li><li>Clique em <strong>Salvar registro</strong>.</li></ol><p>Após salvar, use <strong>Anexos</strong> para incluir documentos de até 5 MB. Consulte todos os períodos no menu <strong>Calendário</strong>.</p><h3>Conflito de datas</h3><p>Quando houver sobreposição, escolha <strong>Voltar e ajustar</strong> para corrigir ou <strong>Continuar mesmo assim</strong> quando o lançamento estiver correto.</p><h3>Editar ou excluir</h3><p>Somente quem criou o registro pode alterá-lo. A indicação <strong>Somente leitura</strong> informa que o lançamento pertence a outro usuário.</p></section>
+
+        <section class="tutorial-section" id="tutorial-alertas"><h2><span>4</span> Alertas e notificações</h2><ol><li>Clique no sino do cabeçalho.</li><li>Use <strong>Criar</strong>, selecione o registro relacionado e escolha a data.</li><li>Use <strong>Marcar como lido</strong>, <strong>Ler todos</strong> ou <strong>Apagar</strong> para organizar os avisos.</li></ol><p>Na Visão geral, <strong>Manter</strong> preserva o alerta e <strong>Parar</strong> interrompe aquele aviso para sua conta.</p></section>
+
+        <section class="tutorial-section" id="tutorial-relatorios"><h2><span>5</span> Arquivados e relatórios</h2><p>Abra <strong>Arquivados</strong> para consultar registros encerrados. Em <strong>Relatórios</strong>, acompanhe totais, registros mensais, resumo por setor e o estado do último backup.</p><ol><li>Em Férias ou Abonos, clique em <strong>Exportar</strong>.</li><li>Escolha o período e os servidores.</li><li>Selecione <strong>Excel</strong> para gerar CSV ou <strong>PDF</strong> para imprimir e salvar.</li><li>Clique em <strong>Gerar documento</strong>.</li></ol></section>
+
+        <section class="tutorial-section" id="tutorial-estrutura"><h2><span>6</span> Setores</h2><ol><li>Abra <strong>Setores</strong>.</li><li>Informe o nome e clique em <strong>Adicionar setor</strong>.</li><li>Ao cadastrar ou editar um servidor, selecione seu setor.</li></ol><p>Essas informações alimentam os relatórios gerenciais e facilitam a organização dos servidores.</p></section>
+
+        <section class="tutorial-section" id="tutorial-perfil"><h2><span>6</span> Meu perfil</h2><p>Clique no seu nome ou avatar no canto superior direito. Nessa página você pode alterar e-mail ou senha, confirmando a operação com a senha atual. A conta master não pode excluir a própria conta.</p><p>Ao terminar, clique em <strong>Sair</strong> no final do menu lateral, especialmente em computadores compartilhados.</p></section>
+
+        <section class="tutorial-section" id="tutorial-administracao"><h2><span>7</span> Administração</h2><p>Disponível apenas para o master, que possui controle total.</p><ul><li><strong>Cadastrar usuário:</strong> toda nova conta é criada automaticamente como Administrador.</li><li><strong>Editar:</strong> somente o master pode alterar uma conta entre Administrador e Master, além de controlar status e senha.</li><li><strong>Entrar:</strong> visualize o sistema como outra conta. Use <strong>Voltar ao Adm Master</strong> para retornar.</li><li><strong>Excluir:</strong> remova uma conta que não seja mais necessária.</li></ul><p>O Administrador faz a gestão geral de servidores, férias, abonos, calendários, anexos, estruturas e relatórios.</p></section>
+
+        <section class="tutorial-section" id="tutorial-auditoria"><h2><span>8</span> Auditoria e permissões</h2><p>A Auditoria registra acessos, alterações, exclusões e outras ações importantes. Use a busca por usuário, ação ou IP e clique em <strong>Ver detalhes</strong>.</p><h3>Autorizar outro usuário</h3><ol><li>Entre com o master principal.</li><li>Abra <strong>Auditoria</strong>.</li><li>Em <strong>Acesso à Auditoria</strong>, selecione o usuário.</li><li>Clique em <strong>Conceder acesso</strong>.</li></ol><h3>Retirar acesso</h3><p>Na lista de usuários autorizados, clique em <strong>Retirar acesso</strong>. A proteção é aplicada imediatamente; o usuário deve atualizar a página ou entrar novamente para atualizar o menu.</p></section>
+
+        <section class="tutorial-section" id="tutorial-backup"><h2><span>9</span> Backup automático</h2><p>O backup é executado diariamente às <strong>17h30</strong>. Se o computador estiver desligado, a tarefa será recuperada no próximo login. Sem registros novos ou alterados, nenhum arquivo adicional é criado.</p><p>Destino: <code>S:\\ATUACAO MEIO\\Divisao de Apoio Administrativo\\Felippe.andreata\\Backup_gerenciador_ferias</code></p></section>
+
+        <section class="tutorial-section" id="tutorial-problemas"><h2><span>10</span> Solução de problemas</h2><div class="tutorial-faq"><details><summary>O site não abre</summary><p>Confirme que o Apache está ativo no XAMPP e execute novamente o arquivo de abertura do sistema.</p></details><details><summary>A Auditoria não aparece</summary><p>Reinicie o servidor, atualize com <strong>Ctrl + F5</strong> e entre novamente. O master principal deve usar o e-mail contatotech.tecnologia@gmail.com.</p></details><details><summary>Outro computador não acessa</summary><p>Confirme que os computadores estão na mesma rede, que o principal está ligado e que o Firewall liberou o Node.js em redes privadas.</p></details><details><summary>O backup não apareceu</summary><p>Confira o acesso à unidade S:. Se nada mudou desde a última cópia, o sistema não cria outro arquivo.</p></details><details><summary>Uma alteração recente não aparece</summary><p>Reinicie o servidor e atualize o navegador com <strong>Ctrl + F5</strong>.</p></details></div></section>
+    </div>`;
+}
+
 async function auditoria() {
+    if (!state.me?.can_view_audit) return showPage('dashboard');
     try {
-        state.auditoria = await api('/api/audit');
+        const requests = [api('/api/audit')];
+        if (state.me.can_manage_audit_access) requests.push(api('/api/audit/access'));
+        const [auditRows, accessUsers = []] = await Promise.all(requests);
+        state.auditoria = auditRows;
+        state.auditAccessUsers = accessUsers;
     } catch {
         state.auditoria = [];
+        state.auditAccessUsers = [];
     }
+    const availableUsers = state.auditAccessUsers.filter(user => user.active && !user.audit_access);
+    const allowedUsers = state.auditAccessUsers.filter(user => user.audit_access);
     $('#content').innerHTML = `
     <div class="page">
+        ${state.me.can_manage_audit_access ? `
+        <section class="audit-access-panel">
+            <div><h3>Acesso à Auditoria</h3><small>Conceda ou retire o acesso de usuários cadastrados.</small></div>
+            <div class="audit-access-grant">
+                <select id="auditAccessUser" aria-label="Selecionar usuário para acessar a auditoria">
+                    <option value="">Selecione um usuário</option>
+                    ${availableUsers.map(user => `<option value="${user.id}">${esc(user.username)}${user.email ? ` — ${esc(user.email)}` : ''}</option>`).join('')}
+                </select>
+                <button type="button" class="primary" id="grantAuditAccess" ${availableUsers.length ? '' : 'disabled'}>Conceder acesso</button>
+            </div>
+            <div class="audit-access-list">
+                <strong>Usuários autorizados</strong>
+                ${allowedUsers.length ? allowedUsers.map(user => `<span class="audit-access-user"><span>${esc(user.username)}${user.email ? ` — ${esc(user.email)}` : ''}</span><button type="button" class="danger" onclick="setAuditAccess(${user.id}, false)">Retirar acesso</button></span>`).join('') : '<small>Nenhum outro usuário autorizado.</small>'}
+            </div>
+        </section>` : ''}
         <div class="section-head audit-head">
             <div>
                 <h3>Logs de Auditoria</h3>
@@ -398,7 +525,23 @@ async function auditoria() {
         const term = e.target.value.trim().toLowerCase();
         $$('[data-audit-row]').forEach(row => row.hidden = !row.dataset.auditRow.includes(term));
     });
+    if (state.me.can_manage_audit_access) {
+        $('#grantAuditAccess').onclick = () => {
+            const id = Number($('#auditAccessUser').value);
+            if (id) setAuditAccess(id, true);
+        };
+    }
 }
+
+window.setAuditAccess = async (id, enabled) => {
+    try {
+        await api(`/api/audit/access/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) });
+        toast(enabled ? 'Acesso à auditoria concedido.' : 'Acesso à auditoria retirado.');
+        await auditoria();
+    } catch (error) {
+        toast(error.message, true);
+    }
+};
 
 function perfil() {
     $('#content').innerHTML = `
@@ -439,7 +582,10 @@ function perfil() {
 
 async function admin(tab = 'users') {
     if (state.me.role !== 'master') return;
-    const [users, audit] = await Promise.all([api('/api/admin/users'), api('/api/admin/audit')]);
+    if (tab === 'audit' && !state.me.can_view_audit) tab = 'users';
+    const users = await api('/api/admin/users');
+    state.adminUsers = users;
+    const audit = state.me.can_view_audit ? await api('/api/admin/audit') : [];
     state.auditoria = audit;
     
     $('#content').innerHTML = `
@@ -450,7 +596,7 @@ async function admin(tab = 'users') {
         </div>
         <div class="admin-tabs">
             <button class="${tab === 'users' ? 'active' : ''}" onclick="admin('users')">Usuários</button>
-            <button class="${tab === 'audit' ? 'active' : ''}" onclick="admin('audit')">Auditoria</button>
+            ${state.me.can_view_audit ? `<button class="${tab === 'audit' ? 'active' : ''}" onclick="admin('audit')">Auditoria</button>` : ''}
         </div>
         <div class="table-wrap">
             ${tab === 'users' ? `
@@ -472,7 +618,7 @@ async function admin(tab = 'users') {
                             <td>${esc(u.role)}</td>
                             <td>${u.active ? 'Ativo' : 'Inativo'}</td>
                             <td class="actions">
-                                <button class="icon-btn" onclick='editUser(${JSON.stringify(u)})'>Editar</button>
+                                <button type="button" class="icon-btn" onclick="editUser(${u.id})">Editar</button>
                                 ${u.id !== state.me.id ? `
                                     <button class="icon-btn" onclick="impersonate(${u.id})">Entrar</button>
                                     <button class="icon-btn" onclick="deleteUser(${u.id})">Excluir</button>
@@ -756,8 +902,12 @@ window.openAuditDetails = id => {
     `);
 };
 
-window.openServidor = id => {
+window.openServidor = async id => {
     const s = state.servidores.find(x => x.id === id) || {};
+    if (!state.setores.length) {
+        const structure = await api('/api/estrutura');
+        state.setores = structure.setores;
+    }
     modal(`
         <h2>${id ? 'Editar' : 'Cadastrar'} servidor</h2>
         <form id="servidorForm">
@@ -769,6 +919,11 @@ window.openServidor = id => {
             <div class="grid2">
                 <label>CPF<input name="cpf" value="${esc(s.cpf || '')}"></label>
                 <label>Matrícula<input name="matricula" value="${esc(s.matricula || '')}"></label>
+            </div>
+            <label>Setor<select name="setor_id"><option value="">Sem setor</option>${state.setores.map(x=>`<option value="${x.id}" ${Number(s.setor_id)===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></label>
+            <div class="grid2">
+                <label>Direito a férias (dias)<input type="number" min="0" name="ferias_total" value="${Number(s.ferias_total ?? 30)}"></label>
+                <label>Direito anual a abono (dias)<input type="number" min="0" name="abono_total" value="${Number(s.abono_total ?? 5)}"><small>Renovado a cada 1º de janeiro; saldo vencido não acumula.</small></label>
             </div>
             <div class="form-actions">
                 <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
@@ -914,14 +1069,10 @@ window.openCreateUser = () => {
                 <label>Matrícula<input name="matricula"></label>
             </div>
             <div class="grid2">
-                <label>Perfil
-                    <select name="role">
-                        <option value="admin">Administrador</option>
-                        <option value="master">Master</option>
-                    </select>
-                </label>
+                <label>Perfil<input value="Administrador" disabled></label>
                 <label>Senha *<input type="password" name="password" minlength="8" required></label>
             </div>
+            <small>Todo novo cadastro é criado como Administrador. Somente o usuário master pode promover ou rebaixar uma conta posteriormente.</small>
             <div class="form-actions">
                 <button type="button" class="secondary" onclick="closeModal()">Cancelar</button>
                 <button class="primary">Cadastrar</button>
@@ -942,7 +1093,9 @@ window.openCreateUser = () => {
     };
 };
 
-window.editUser = u => {
+window.editUser = id => {
+    const u = state.adminUsers.find(user => user.id === id);
+    if (!u) return toast('Usuário não encontrado. Atualize a página.', true);
     modal(`
         <h2>Editar usuário</h2>
         <form id="userForm">
@@ -978,25 +1131,31 @@ window.editUser = u => {
         e.preventDefault();
         const d = formData(e.target);
         d.active = d.active === '1';
-        await api(`/api/admin/users/${u.id}`, { method: 'PATCH', body: JSON.stringify(d) });
-        $('#modal').close();
-        admin('users');
-        toast('Usuário atualizado.');
+        const button=e.submitter;button.disabled=true;
+        try {
+            await api(`/api/admin/users/${u.id}`, { method: 'PATCH', body: JSON.stringify(d) });
+            $('#modal').close();
+            await admin('users');
+            toast('Usuário atualizado.');
+        } catch(error) {
+            toast(error.message,true);
+        } finally {
+            button.disabled=false;
+        }
     };
 };
 
 window.impersonate = async id => {
     if (await confirmDialog({ title: 'Acessar como este usuário?', message: 'Você passará a visualizar o sistema com as permissões desta conta. Para voltar ao master, use o botão no topo da tela.', confirmLabel: 'Acessar conta' })) {
-        await api(`/api/admin/impersonate/${id}`, { method: 'POST' });
-        await boot();
+        try { await api(`/api/admin/impersonate/${id}`, { method: 'POST' }); await boot(); }
+        catch(error){ toast(error.message,true); }
     }
 };
 
 window.deleteUser = async id => {
     if (await confirmDialog({ title: 'Excluir usuário?', message: 'A conta será removida permanentemente. Os registros históricos serão preservados quando aplicável.', confirmLabel: 'Excluir usuário', danger: true })) {
-        await api(`/api/admin/users/${id}`, { method: 'DELETE' });
-        admin('users');
-        toast('Usuário excluído.');
+        try { await api(`/api/admin/users/${id}`, { method: 'DELETE' }); await admin('users'); toast('Usuário excluído.'); }
+        catch(error){ toast(error.message,true); }
     }
 };
 
