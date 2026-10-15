@@ -940,7 +940,7 @@ window.openServidor = async id => {
                 <label>CPF<input name="cpf" value="${esc(s.cpf || '')}"></label>
                 <label>Matrícula<input name="matricula" value="${esc(s.matricula || '')}"></label>
             </div>
-            <label>Setor<select name="setor_id"><option value="">Sem setor</option>${state.setores.map(x=>`<option value="${x.id}" ${Number(s.setor_id)===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select></label>
+            <label>Setor *<select name="setor_id" required><option value="" disabled ${id ? "" : "selected"}>Selecione um setor</option><option value="sem_setor" ${id && !s.setor_id ? "selected" : ""}>Sem setor</option>${state.setores.map(x=>`<option value="${x.id}" ${Number(s.setor_id)===x.id?'selected':''}>${esc(x.nome)}</option>`).join('')}</select><small>Selecione um setor ou escolha “Sem setor”.</small></label>
             <div class="grid2">
                 <label>Direito a férias (dias)<input type="number" min="0" name="ferias_total" value="${Number(s.ferias_total ?? 30)}"></label>
                 <label>Direito anual a abono (dias)<input type="number" min="0" name="abono_total" value="${Number(s.abono_total ?? 5)}"><small>Renovado a cada 1º de janeiro; saldo vencido não acumula.</small></label>
@@ -955,6 +955,7 @@ window.openServidor = async id => {
     $('#servidorForm').onsubmit = async e => {
         e.preventDefault();
         const data = formData(e.target);
+        if (!data.setor_id) { toast('Selecione um setor ou Sem setor.', true); return; }
         const save = payload => api(id ? `/api/servidores/${id}` : '/api/servidores', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
         try {
             await save(data);
