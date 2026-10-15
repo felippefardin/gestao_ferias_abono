@@ -2,10 +2,18 @@ const $ = (s, e = document) => e.querySelector(s); const $$ = (s, e = document) 
 
 const pathMatch = location.pathname.match(/^(.*?\/gestao-ferias-abonos)(?:\/|$)/i);
 const API_BASE = pathMatch ? pathMatch[1] : '';
-const state = { me: null, servidores: [], eventos: [], arquivados: [], alertas: [], auditoria: [], auditAccessUsers: [], setores: [], adminUsers: [], calendarDate: new Date() };
+const state = { me: null, servidores: [], eventos: [], arquivados: [], alertas: [], auditoria: [], auditAccessUsers: [], setores: [], adminUsers: [], calendarDate: new Date(), calendarFilters:{servidor_id:'',setor_id:'',tipo:''} };
 
 const fmt = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const localIso = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+const calendarColor = event => {
+    const id=Math.abs(Number(event.id)||1);
+    const hue=Math.round((id*137.508)%360);
+    const saturation=62+(id%3)*6;
+    const lightness=72+(id%4)*3;
+    return `hsl(${hue} ${saturation}% ${lightness}%)`;
+};
 
 function toast(msg, bad = false) {
     const t = $('#toast');
@@ -157,6 +165,7 @@ async function boot() {
         $('#avatar').textContent = state.me.username[0].toUpperCase();
         $('#userRole').textContent = state.me.role === 'master' ? 'Master administrador' : 'Administrador';
         $('#adminNav').hidden = state.me.role !== 'master';
+        $('#integrityNav').hidden = state.me.role !== 'master';
         $('#auditNav').hidden = !state.me.can_view_audit;
         
         // Exibe banner se estiver personificando outro usuário
@@ -170,7 +179,7 @@ async function boot() {
         showPage('dashboard');
     } catch {
         $('#auth').hidden = false;
-        $('#app').hidden = true;     } }  async function reload() {     [state.servidores, state.eventos, state.arquivados, state.alertas] = await Promise.all([         api('/api/servidores'),         api('/api/eventos'),         api('/api/eventos?archived=1'),         api('/api/alertas')     ]); renderAlertBell(); }  $$('[data-page]').forEach(b => b.onclick = () => showPage(b.dataset.page));
+        $('#app').hidden = true;     } }  async function reload() {     const [servidores,eventos,arquivados,alertas,estruturaData] = await Promise.all([         api('/api/servidores'),         api('/api/eventos'),         api('/api/eventos?archived=1'),         api('/api/alertas'),         api('/api/estrutura')     ]); state.servidores=servidores;state.eventos=eventos;state.arquivados=arquivados;state.alertas=alertas;state.setores=estruturaData.setores||[];renderAlertBell(); }  $$('[data-page]').forEach(b => b.onclick = () => showPage(b.dataset.page));
 if ($('#menuBtn')) $('#menuBtn').onclick = () => $('aside').classList.toggle('open');
 
 $('#logout').onclick = async event => {
@@ -194,11 +203,11 @@ $('#logout').onclick = async event => {
 };
 
 if ($('#btnRestoreMaster')) {
-    $('#btnRestoreMaster').onclick = async () => {         await api('/api/admin/restore-master', { method: 'POST' });         await boot();     }; }  const titles = {     dashboard: 'Visão geral',     servidores: 'Cadastro de servidores',     ferias: 'Férias',     abono: 'Abonos',     calendario: 'Calendário',     relatorios: 'Relatórios gerenciais',     estrutura: 'Setores',     arquivados: 'Arquivados',     tutorial: 'Tutorial',     auditoria: 'Auditoria',     perfil: 'Meu perfil',     admin: 'Administração' };  async function showPage(page) {     if (page === 'auditoria' && !state.me?.can_view_audit) page = 'dashboard';     $$('nav [data-page]').forEach(x => x.classList.toggle('active', x.dataset.page === page));
+    $('#btnRestoreMaster').onclick = async () => {         await api('/api/admin/restore-master', { method: 'POST' });         await boot();     }; }  const titles = {     dashboard: 'Visão geral',     servidores: 'Cadastro de servidores',     ferias: 'Férias',     abono: 'Abonos',     calendario: 'Calendário',     relatorios: 'Relatórios gerenciais',     integridade: 'Integridade do sistema',     estrutura: 'Setores',     arquivados: 'Arquivados',     tutorial: 'Tutorial',     auditoria: 'Auditoria',     perfil: 'Meu perfil',     admin: 'Administração' };  async function showPage(page) {     if (page === 'auditoria' && !state.me?.can_view_audit) page = 'dashboard'; if(page==='integridade'&&state.me?.role!=='master')page='dashboard';     $$('nav [data-page]').forEach(x => x.classList.toggle('active', x.dataset.page === page));
     if ($('#pageTitle')) $('#pageTitle').textContent = titles[page] || 'Gestão';
     $('aside').classList.remove('open');
     
-    const pageRenderers = { dashboard, servidores, eventos, calendario, relatorios, estrutura, arquivados, tutorial, auditoria, perfil, admin };
+    const pageRenderers = { dashboard, servidores, eventos, calendario, relatorios, integridade, estrutura, arquivados, tutorial, auditoria, perfil, admin };
     const renderer = pageRenderers[page === 'ferias' || page === 'abono' ? 'eventos' : page];
     if (!renderer) return;
     const content = $('#content');
@@ -251,6 +260,13 @@ function eventRows(items, archived = false) {
 
 function dashboard() {
     const soon = state.eventos.filter(e => (new Date(e.inicio) - new Date()) / 864e5 <= 30);
+    const lowBalances=state.servidores.flatMap(s=>{
+        const ferias=Number(s.ferias_total)-Number(s.ferias_usadas),abono=Number(s.abono_total)-Number(s.abonos_usados);
+        const alerts=[];
+        if(ferias>=0&&ferias<=5)alerts.push({nome:s.nome,tipo:'Férias',saldo:ferias});
+        if(abono>=0&&abono<=1)alerts.push({nome:s.nome,tipo:`Abono ${new Date().getFullYear()}`,saldo:abono});
+        return alerts;
+    });
     $('#content').innerHTML = `
     <div class="page">
         <section class="hero">
@@ -267,6 +283,8 @@ function dashboard() {
             <button type="button" class="stat stat-link" onclick="showPage('abono')" aria-label="Abrir abonos ativos ou futuros"><span class="dot"><i class="bi bi-calendar2-check-fill" aria-hidden="true"></i></span><small>Abonos ativos ou futuros</small><strong>${state.eventos.filter(x => x.tipo === 'abono').length}</strong><span class="stat-action">Ver abonos <i class="bi bi-arrow-right" aria-hidden="true"></i></span></button>
             <div class="stat"><span class="dot"><i class="bi bi-bell-fill" aria-hidden="true"></i></span><small>Alertas atuais</small><strong>${state.alertas.length}</strong></div>
         </section>
+
+        ${lowBalances.length?`<div class="section-head"><h3>Avisos de saldo baixo</h3></div><div class="low-balance-list">${lowBalances.map(item=>`<div class="low-balance-alert"><i class="bi bi-exclamation-triangle-fill"></i><span><strong>${esc(item.nome)}</strong><small>${item.tipo}: restam ${item.saldo} dia(s)</small></span></div>`).join('')}</div>`:''}
 
         <div class="section-head"><h3>Alertas e próximos compromissos</h3></div>
         <div class="alert-list">
@@ -392,16 +410,39 @@ function calendario() {
     const cells = [];
     for (let i = 0; i < first.getDay(); i++) cells.push(null);
     for (let day = 1; day <= last.getDate(); day++) cells.push(new Date(year, month, day));
-    const allEvents = [...state.eventos, ...state.arquivados];
-    $('#content').innerHTML = `<div class="page"><div class="section-head"><div><h3>Calendário da equipe</h3><small>Férias em amarelo e abonos em azul.</small></div><div class="section-actions"><button class="secondary" onclick="changeCalendarMonth(-1)">‹ Anterior</button><strong>${current.toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</strong><button class="secondary" onclick="changeCalendarMonth(1)">Próximo ›</button></div></div><div class="calendar-week">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d=>`<strong>${d}</strong>`).join('')}</div><div class="calendar-grid">${cells.map(date=>{if(!date)return '<div class="calendar-day empty-day"></div>';const iso=date.toISOString().slice(0,10);const items=allEvents.filter(e=>e.inicio<=iso&&e.fim>=iso);return `<div class="calendar-day ${iso===new Date().toISOString().slice(0,10)?'today':''}"><b>${date.getDate()}</b>${items.map(e=>`<span class="calendar-event ${e.tipo}" title="${esc(e.servidor_nome)}: ${fmt(e.inicio)} a ${fmt(e.fim)}">${esc(e.servidor_nome)}</span>`).join('')}</div>`;}).join('')}</div></div>`;
+    const allEvents = [...state.eventos, ...state.arquivados].filter(e=>{
+        const servidor=state.servidores.find(s=>s.id===e.servidor_id);
+        return (!state.calendarFilters.servidor_id||e.servidor_id===Number(state.calendarFilters.servidor_id))&&(!state.calendarFilters.setor_id||servidor?.setor_id===Number(state.calendarFilters.setor_id))&&(!state.calendarFilters.tipo||e.tipo===state.calendarFilters.tipo);
+    });
+    const monthStart=localIso(first),monthEnd=localIso(last);
+    const monthEvents=allEvents.filter(e=>e.inicio<=monthEnd&&e.fim>=monthStart);
+    const legend=monthEvents.map(e=>`<span class="calendar-legend-item"><i style="background:${calendarColor(e)}"></i><span>${esc(e.servidor_nome)} — ${e.tipo==='ferias'?'Férias':'Abono'} (${fmt(e.inicio)} a ${fmt(e.fim)})</span></span>`).join('');
+    $('#content').innerHTML = `<div class="page"><div class="section-head"><div><h3>Calendário da equipe</h3><small>Cada registro possui uma cor própria, repetida durante todo o período.</small></div></div><div class="calendar-toolbar"><div class="filter-bar"><label>Servidor<select onchange="setCalendarFilter('servidor_id',this.value)"><option value="">Todos</option>${state.servidores.map(s=>`<option value="${s.id}" ${String(s.id)===String(state.calendarFilters.servidor_id)?'selected':''}>${esc(s.nome)}</option>`).join('')}</select></label><label>Setor<select onchange="setCalendarFilter('setor_id',this.value)"><option value="">Todos</option>${state.setores.map(s=>`<option value="${s.id}" ${String(s.id)===String(state.calendarFilters.setor_id)?'selected':''}>${esc(s.nome)}</option>`).join('')}</select></label><label>Tipo<select onchange="setCalendarFilter('tipo',this.value)"><option value="">Todos</option><option value="ferias" ${state.calendarFilters.tipo==='ferias'?'selected':''}>Férias</option><option value="abono" ${state.calendarFilters.tipo==='abono'?'selected':''}>Abono</option></select></label><button class="secondary" onclick="clearCalendarFilters()">Limpar filtros</button></div><div class="calendar-nav"><button type="button" onclick="changeCalendarMonth(-1)">‹ Anterior</button><div><strong>${current.toLocaleDateString('pt-BR',{month:'long'}).replace(/^./,c=>c.toUpperCase())}</strong><span>${year}</span></div><button type="button" onclick="changeCalendarMonth(1)">Próximo ›</button></div></div>${legend?`<div class="calendar-legend">${legend}</div>`:'<p class="calendar-empty-note">Nenhum registro neste mês com os filtros selecionados.</p>'}<div class="calendar-week">${['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d=>`<strong>${d}</strong>`).join('')}</div><div class="calendar-grid">${cells.map(date=>{if(!date)return '<div class="calendar-day empty-day"></div>';const iso=localIso(date);const items=allEvents.filter(e=>e.inicio<=iso&&e.fim>=iso);return `<div class="calendar-day ${iso===localIso(new Date())?'today':''}"><b>${date.getDate()}</b>${items.map(e=>`<span class="calendar-event" style="background:${calendarColor(e)};color:#162733" title="${esc(e.servidor_nome)} — ${e.tipo==='ferias'?'Férias':'Abono'}: ${fmt(e.inicio)} a ${fmt(e.fim)}"><strong>${esc(e.servidor_nome)}</strong><small>${e.tipo==='ferias'?'Férias':'Abono'}</small></span>`).join('')}</div>`;}).join('')}</div></div>`;
 }
 window.changeCalendarMonth = delta => { state.calendarDate = new Date(state.calendarDate.getFullYear(), state.calendarDate.getMonth()+delta, 1); calendario(); };
+window.setCalendarFilter=(key,value)=>{state.calendarFilters[key]=value;calendario();};
+window.clearCalendarFilters=()=>{state.calendarFilters={servidor_id:'',setor_id:'',tipo:''};calendario();};
 
-async function relatorios() {
-    const [summary, backup] = await Promise.all([api('/api/relatorios/resumo'),api('/api/backup/status')]);
+async function relatorios(filters = {}) {
+    const query=new URLSearchParams(Object.entries(filters).filter(([,value])=>value)).toString();
+    const [summary, backup] = await Promise.all([api(`/api/relatorios/resumo${query?'?'+query:''}`),api('/api/backup/status')]);
     const active = Object.fromEntries(summary.ativos.map(x=>[x.tipo,x.quantidade]));
-    $('#content').innerHTML = `<div class="page"><div class="section-head"><div><h3>Relatórios gerenciais</h3><small>Indicadores consolidados para acompanhamento.</small></div><button class="secondary" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button></div><div class="stats"><div class="stat"><small>Servidores</small><strong>${summary.totalServidores}</strong></div><div class="stat"><small>Férias ativas/futuras</small><strong>${active.ferias||0}</strong></div><div class="stat"><small>Abonos ativos/futuros</small><strong>${active.abono||0}</strong></div><div class="stat ${backup.ok?'':'backup-warning'}"><small>Último backup</small><strong>${backup.latest?new Date(backup.latest.modified).toLocaleDateString('pt-BR'):'Pendente'}</strong></div></div><div class="report-grid"><section class="card"><h3>Registros por mês</h3><table><thead><tr><th>Mês</th><th>Tipo</th><th>Registros</th><th>Dias</th></tr></thead><tbody>${summary.porMes.map(x=>`<tr><td>${esc(x.mes)}</td><td>${x.tipo==='ferias'?'Férias':'Abono'}</td><td>${x.quantidade}</td><td>${Math.round(x.dias||0)}</td></tr>`).join('')}</tbody></table></section><section class="card"><h3>Resumo por setor</h3><table><thead><tr><th>Setor</th><th>Servidores</th><th>Registros</th></tr></thead><tbody>${summary.porSetor.map(x=>`<tr><td>${esc(x.setor)}</td><td>${x.servidores}</td><td>${x.registros}</td></tr>`).join('')}</tbody></table><h3>Status do backup</h3><p class="${backup.ok?'success-text':'redtext'}">${esc(backup.message)}</p><small>${esc(backup.destination)}</small></section></div></div>`;
+    $('#content').innerHTML = `<div class="page"><div class="section-head"><div><h3>Relatórios gerenciais</h3><small>Indicadores consolidados para acompanhamento.</small></div><button class="secondary" onclick="window.print()"><i class="bi bi-printer"></i> Imprimir</button></div><form id="reportFilters" class="filter-bar"><label>Data inicial<input type="date" name="inicio" value="${esc(filters.inicio||'')}"></label><label>Data final<input type="date" name="fim" value="${esc(filters.fim||'')}"></label><label>Servidor<select name="servidor_id"><option value="">Todos</option>${state.servidores.map(s=>`<option value="${s.id}" ${String(filters.servidor_id)===String(s.id)?'selected':''}>${esc(s.nome)}</option>`).join('')}</select></label><label>Setor<select name="setor_id"><option value="">Todos</option>${state.setores.map(s=>`<option value="${s.id}" ${String(filters.setor_id)===String(s.id)?'selected':''}>${esc(s.nome)}</option>`).join('')}</select></label><label>Tipo<select name="tipo"><option value="">Todos</option><option value="ferias" ${filters.tipo==='ferias'?'selected':''}>Férias</option><option value="abono" ${filters.tipo==='abono'?'selected':''}>Abono</option></select></label><button class="primary">Aplicar</button><button type="button" class="secondary" id="clearReportFilters">Limpar</button></form><div class="stats"><div class="stat"><small>Servidores cadastrados</small><strong>${summary.totalServidores}</strong></div><div class="stat"><small>Registros filtrados</small><strong>${summary.registros}</strong></div><div class="stat"><small>Férias ativas/futuras</small><strong>${active.ferias||0}</strong></div><div class="stat"><small>Abonos ativos/futuros</small><strong>${active.abono||0}</strong></div><div class="stat ${backup.ok?'':'backup-warning'}"><small>Último backup</small><strong>${backup.latest?new Date(backup.latest.modified).toLocaleDateString('pt-BR'):'Pendente'}</strong></div></div><div class="report-grid"><section class="card"><h3>Registros por mês</h3><table><thead><tr><th>Mês</th><th>Tipo</th><th>Registros</th><th>Dias</th></tr></thead><tbody>${summary.porMes.map(x=>`<tr><td>${esc(x.mes)}</td><td>${x.tipo==='ferias'?'Férias':'Abono'}</td><td>${x.quantidade}</td><td>${Math.round(x.dias||0)}</td></tr>`).join('')||'<tr><td colspan="4">Nenhum registro nos filtros selecionados.</td></tr>'}</tbody></table></section><section class="card"><h3>Resumo por setor</h3><table><thead><tr><th>Setor</th><th>Servidores</th><th>Registros</th></tr></thead><tbody>${summary.porSetor.map(x=>`<tr><td>${esc(x.setor)}</td><td>${x.servidores}</td><td>${x.registros}</td></tr>`).join('')||'<tr><td colspan="3">Nenhum resultado.</td></tr>'}</tbody></table><h3>Status do backup</h3><p class="${backup.ok?'success-text':'redtext'}">${esc(backup.message)}</p><small>${esc(backup.destination)}</small></section></div></div>`;
+    $('#reportFilters').onsubmit=e=>{e.preventDefault();relatorios(formData(e.target));};
+    $('#clearReportFilters').onclick=()=>relatorios({});
 }
+
+async function integridade(){
+    if(state.me.role!=='master')return showPage('dashboard');
+    const health=await api('/api/integridade');
+    let backups={files:[],destination:''},backupError='';
+    try{backups=await api('/api/backups');}catch(error){backupError=error.message;}
+    const labels={server:'Servidor',database:'Banco de dados',email:'E-mail',network:'Rede',backup:'Backup'};
+    $('#content').innerHTML=`<div class="page"><div class="section-head"><div><h3>Painel de integridade</h3><small>Verificação realizada em ${new Date(health.checked_at).toLocaleString('pt-BR')}.</small></div><button class="secondary" onclick="integridade()"><i class="bi bi-arrow-clockwise"></i> Verificar novamente</button></div><div class="health-grid">${Object.entries(health.checks).map(([key,item])=>`<article class="health-card ${item.ok?'health-ok':'health-fail'}"><i class="bi ${item.ok?'bi-check-circle-fill':'bi-exclamation-triangle-fill'}"></i><div><h3>${labels[key]}</h3><p>${esc(item.message)}</p></div></article>`).join('')}</div><section class="card backup-manager"><div class="section-head"><div><h3>Validação e restauração de backup</h3><small>A restauração é exclusiva do Master e cria uma cópia de segurança do banco atual.</small></div></div>${backupError?`<p class="redtext">${esc(backupError)}</p>`:`<p><strong>Destino:</strong> ${esc(backups.destination)}</p><div class="table-wrap">${backups.files.length?`<table><thead><tr><th>Arquivo</th><th>Data</th><th>Tamanho</th><th>Ações</th></tr></thead><tbody>${backups.files.map(file=>`<tr><td>${esc(file.name)}</td><td>${new Date(file.modified).toLocaleString('pt-BR')}</td><td>${Math.ceil(file.size/1024)} KB</td><td class="actions"><button class="icon-btn" onclick="validateBackup('${encodeURIComponent(file.name)}')">Validar</button><button class="danger compact-btn" onclick="restoreBackup('${encodeURIComponent(file.name)}')">Restaurar</button></td></tr>`).join('')}</tbody></table>`:'<div class="empty">Nenhum backup disponível.</div>'}</div>`}</section><div class="tutorial-note"><i class="bi bi-shield-lock-fill"></i><p><strong>Procedimento seguro:</strong> valide o arquivo antes de restaurar. Ao confirmar a restauração, feche o sistema e execute novamente <code>iniciar.bat</code>. Na abertura, o sistema guarda uma cópia do banco atual e aplica o backup selecionado.</p></div></div>`;
+}
+window.integridade=integridade;
+window.validateBackup=async encoded=>{try{const result=await api(`/api/backups/${encoded}/validate`,{method:'POST'});toast(`Backup válido: ${result.file.name}`);}catch(error){toast(error.message,true);}};
+window.restoreBackup=async encoded=>{const name=decodeURIComponent(encoded);if(!await confirmDialog({title:'Preparar restauração?',message:`O backup ${name} substituirá os dados atuais na próxima inicialização. Uma cópia de segurança do banco atual será criada automaticamente.`,confirmLabel:'Preparar restauração',danger:true}))return;try{const result=await api(`/api/backups/${encoded}/restore`,{method:'POST'});toast(result.message);}catch(error){toast(error.message,true);}};
 
 async function estrutura() {
     const data = await api('/api/estrutura'); state.setores=data.setores;
@@ -419,8 +460,8 @@ window.deleteAttachment=async(id,eventoId)=>{if(await confirmDialog({message:'Ex
 
 function tutorial() {
     const topics = [
-        ['inicio', 'Primeiros passos'], ['visao', 'Visão geral'], ['servidores', 'Servidores'], ['registros', 'Férias e abonos'],
-        ['calendario', 'Calendário'], ['alertas', 'Alertas'], ['relatorios', 'Relatórios'], ['estrutura', 'Setores'], ['perfil', 'Meu perfil'],
+        ['inicio', 'Primeiros passos'], ['servidores', 'Servidores'], ['registros', 'Férias e abonos'], ['calendario', 'Calendário'],
+        ['alertas', 'Alertas e e-mail'], ['relatorios', 'Relatórios'], ['integridade', 'Integridade'], ['estrutura', 'Setores'], ['perfil', 'Meu perfil'],
         ['administracao', 'Administração'], ['auditoria', 'Auditoria'], ['backup', 'Backup'], ['problemas', 'Solução de problemas']
     ];
     $('#content').innerHTML = `
@@ -429,52 +470,36 @@ function tutorial() {
             <div><span class="tutorial-kicker">Central de ajuda</span><h1>Como usar o Gestão de Férias e Abonos</h1><p>Consulte as instruções completas para cadastrar pessoas, registrar períodos, acompanhar alertas e administrar o sistema.</p></div>
             <i class="bi bi-book-half" aria-hidden="true"></i>
         </section>
-        <label class="tutorial-search-label" for="tutorialSearch">Pesquisar no tutorial</label><input id="tutorialSearch" type="search" placeholder="Ex.: cadastrar férias, anexos, calendário, senha..." aria-label="Pesquisar orientações do tutorial" style="width:100%;max-width:640px;padding:12px;margin:12px 0;border:1px solid #aab5bf;border-radius:10px;background:var(--card-bg,transparent);color:inherit"><p id="tutorialSearchStatus" role="status" aria-live="polite"></p><nav class="tutorial-index" aria-label="Tópicos do tutorial">
+        <nav class="tutorial-index" aria-label="Tópicos do tutorial">
             ${topics.map(([id, label]) => `<a href="#tutorial-${id}">${label}</a>`).join('')}
         </nav>
 
         <section class="tutorial-section" id="tutorial-inicio"><h2><span>1</span> Primeiros passos</h2><div class="tutorial-grid"><article><h3>Entrar</h3><ol><li>Informe usuário, e-mail, CPF ou matrícula.</li><li>Digite sua senha.</li><li>Clique em <strong>Entrar</strong>.</li></ol></article><article><h3>Navegação e aparência</h3><p>Use o menu lateral para abrir cada módulo. No cabeçalho, use <strong>A+</strong>, <strong>A-</strong> e <strong>A</strong> para ajustar a fonte e <strong>Modo escuro</strong> para trocar o tema.</p></article><article><h3>Recuperar senha</h3><ol><li>Clique em <strong>Esqueci minha senha</strong>.</li><li>Informe o e-mail cadastrado.</li><li>Digite o código recebido e cadastre uma nova senha.</li></ol></article></div></section>
 
-        <section class="tutorial-section" id="tutorial-visao"><h2><span>2</span> Visão geral</h2><ol><li>Depois de entrar, abra <strong>Visão geral</strong> no menu lateral.</li><li>Confira os indicadores, os próximos períodos de ausência e os avisos.</li><li>Use os atalhos disponíveis para cadastrar servidores ou criar registros.</li><li>Clique no sino para consultar notificações específicas da sua conta.</li></ol><p>Os dados exibidos dependem dos cadastros e períodos registrados no sistema.</p></section>
+        <section class="tutorial-section" id="tutorial-servidores"><h2><span>2</span> Cadastrar servidores</h2><ol><li>Abra <strong>Servidores</strong>.</li><li>Clique em <strong>Cadastrar servidor</strong>.</li><li>Informe dados pessoais, setor e os direitos de férias e abonos.</li><li>Clique em <strong>Salvar</strong>.</li></ol><h3>Importação e histórico</h3><p>Use <strong>Importar CSV</strong> para cadastrar várias pessoas. O arquivo pode usar vírgula ou ponto e vírgula e deve conter a coluna <code>nome</code>; também aceita <code>funcao,email,cpf,matricula,ferias_total,abono_total</code>. Em <strong>Histórico</strong>, consulte todos os períodos e anexos da pessoa.</p><h3>Saldo anual de abono</h3><p>O direito a abono vale de 1º de janeiro a 31 de dezembro. O saldo não utilizado vence e não acumula para o ano seguinte. Um abono não pode atravessar a virada do ano.</p><div class="tutorial-note"><i class="bi bi-info-circle-fill"></i><p>O sistema avisa quando encontra dados semelhantes e impede lançamentos acima do saldo disponível no respectivo ano. Servidores com registros vinculados não são excluídos, preservando o histórico.</p></div></section>
 
-        <section class="tutorial-section" id="tutorial-servidores"><h2><span>3</span> Cadastrar servidores</h2><ol><li>Abra <strong>Servidores</strong>.</li><li>Clique em <strong>Cadastrar servidor</strong>.</li><li>Informe dados pessoais, setor e os direitos de férias e abonos.</li><li>Clique em <strong>Salvar</strong>.</li></ol><p>O direito a abono é anual: vale de 1º de janeiro a 31 de dezembro e não acumula para o ano seguinte. Use <strong>Importar CSV</strong> para cadastrar várias pessoas e <strong>Histórico</strong> para consultar os registros individuais.</p><div class="tutorial-note"><i class="bi bi-info-circle-fill"></i><p>O sistema avisa quando encontra dados semelhantes e impede lançamentos acima do saldo disponível no respectivo ano. Servidores com registros vinculados não são excluídos, preservando o histórico.</p></div></section>
+        <section class="tutorial-section" id="tutorial-registros"><h2><span>3</span> Registrar férias e abonos</h2><ol><li>Abra <strong>Férias</strong> ou <strong>Abonos</strong>, ou use <strong>Novo registro</strong>.</li><li>Selecione o servidor e o tipo do registro.</li><li>Informe as datas inicial e final.</li><li>Adicione alerta extra e observações, se necessário.</li><li>Clique em <strong>Salvar registro</strong>.</li></ol><p>Após salvar, use <strong>Anexos</strong> para incluir documentos de até 5 MB. Consulte todos os períodos no menu <strong>Calendário</strong>.</p><h3>Conflito de datas</h3><p>Quando houver sobreposição, escolha <strong>Voltar e ajustar</strong> para corrigir ou <strong>Continuar mesmo assim</strong> quando o lançamento estiver correto.</p><h3>Editar ou excluir</h3><p>Somente quem criou o registro pode alterá-lo. A indicação <strong>Somente leitura</strong> informa que o lançamento pertence a outro usuário.</p></section>
 
-        <section class="tutorial-section" id="tutorial-registros"><h2><span>4</span> Registrar férias e abonos</h2><ol><li>Abra <strong>Férias</strong> ou <strong>Abonos</strong>, ou use <strong>Novo registro</strong>.</li><li>Selecione o servidor e o tipo do registro.</li><li>Informe as datas inicial e final.</li><li>Adicione alerta extra e observações, se necessário.</li><li>Clique em <strong>Salvar registro</strong>.</li></ol><p>Após salvar, use <strong>Anexos</strong> para incluir documentos de até 5 MB. Consulte todos os períodos no menu <strong>Calendário</strong>.</p><h3>Conflito de datas</h3><p>Quando houver sobreposição, escolha <strong>Voltar e ajustar</strong> para corrigir ou <strong>Continuar mesmo assim</strong> quando o lançamento estiver correto.</p><h3>Editar ou excluir</h3><p>Somente quem criou o registro pode alterá-lo. A indicação <strong>Somente leitura</strong> informa que o lançamento pertence a outro usuário.</p></section>
+        <section class="tutorial-section" id="tutorial-calendario"><h2><span>4</span> Calendário</h2><p>Abra <strong>Calendário</strong> para visualizar férias e abonos por mês. Use <strong>Anterior</strong> e <strong>Próximo</strong> para navegar.</p><ul><li>Cada registro recebe uma cor exclusiva, mantida em todos os dias do período.</li><li>A legenda identifica servidor, tipo e datas.</li><li>Filtre por servidor, setor e tipo; use <strong>Limpar filtros</strong> para voltar à visão completa.</li><li>Ao posicionar o ponteiro sobre o registro, o sistema mostra seus detalhes.</li><li>O dia atual possui uma borda de destaque.</li></ul></section>
 
-        <section class="tutorial-section" id="tutorial-calendario"><h2><span>5</span> Calendário da equipe</h2><ol><li>Abra <strong>Calendário</strong> no menu lateral.</li><li>Use <strong>Anterior</strong> e <strong>Próximo</strong> para mudar o mês.</li><li>Identifique os períodos por cor: <strong>amarelo</strong> para férias e <strong>azul</strong> para abonos.</li><li>Confira os servidores indicados nos dias do calendário e volte à lista de Férias ou Abonos se precisar editar um registro seu.</li></ol><p>O calendário reúne os registros ativos e arquivados para consulta.</p></section>
+        <section class="tutorial-section" id="tutorial-alertas"><h2><span>5</span> Alertas, saldos e notificações por e-mail</h2><ol><li>Clique no sino do cabeçalho.</li><li>Use <strong>Criar</strong>, selecione o registro relacionado e escolha a data.</li><li>Use <strong>Marcar como lido</strong>, <strong>Ler todos</strong> ou <strong>Apagar</strong> para organizar os avisos.</li></ol><p>Na Visão geral, <strong>Manter</strong> preserva o alerta e <strong>Parar</strong> interrompe aquele aviso para sua conta. A seção <strong>Avisos de saldo baixo</strong> aparece quando restam até 5 dias de férias ou até 1 dia de abono no ano. Com o SMTP configurado, o sistema envia lembretes por e-mail para períodos que começam nos próximos sete dias, usando os e-mails cadastrados.</p></section>
 
-        <section class="tutorial-section" id="tutorial-alertas"><h2><span>6</span> Alertas e notificações</h2><ol><li>Clique no sino do cabeçalho.</li><li>Use <strong>Criar</strong>, selecione o registro relacionado e escolha a data.</li><li>Use <strong>Marcar como lido</strong>, <strong>Ler todos</strong> ou <strong>Apagar</strong> para organizar os avisos.</li></ol><p>Na Visão geral, <strong>Manter</strong> preserva o alerta e <strong>Parar</strong> interrompe aquele aviso para sua conta.</p></section>
+        <section class="tutorial-section" id="tutorial-relatorios"><h2><span>6</span> Arquivados e relatórios</h2><p>Abra <strong>Arquivados</strong> para consultar registros encerrados. Em <strong>Relatórios</strong>, filtre por período, servidor, setor e tipo; acompanhe totais, registros mensais, resumo por setor e o estado do último backup. Use <strong>Imprimir</strong> para gerar uma cópia do painel.</p><ol><li>Em Férias ou Abonos, clique em <strong>Exportar</strong>.</li><li>Escolha o período e os servidores.</li><li>Selecione <strong>Excel</strong> para gerar CSV ou <strong>PDF</strong> para imprimir e salvar.</li><li>Clique em <strong>Gerar documento</strong>.</li></ol></section>
 
-        <section class="tutorial-section" id="tutorial-relatorios"><h2><span>7</span> Arquivados e relatórios</h2><p>Abra <strong>Arquivados</strong> para consultar registros encerrados. Em <strong>Relatórios</strong>, acompanhe totais, registros mensais, resumo por setor e o estado do último backup.</p><ol><li>Em Férias ou Abonos, clique em <strong>Exportar</strong>.</li><li>Escolha o período e os servidores.</li><li>Selecione a opção <strong>Excel/CSV</strong> para uma planilha ou <strong>PDF</strong> para imprimir ou salvar.</li><li>Clique em <strong>Gerar documento</strong>.</li></ol></section>
+        <section class="tutorial-section" id="tutorial-integridade"><h2><span>7</span> Integridade e restauração</h2><p>Disponível exclusivamente para o Master. O painel verifica servidor, banco de dados, e-mail, rede e último backup.</p><h3>Validar um backup</h3><p>Clique em <strong>Validar</strong> para executar a verificação de integridade e confirmar que o arquivo contém as tabelas essenciais.</p><h3>Restaurar com segurança</h3><ol><li>Valide o backup desejado.</li><li>Clique em <strong>Restaurar</strong> e confirme.</li><li>Feche o sistema e execute novamente <strong>iniciar.bat</strong>.</li></ol><p>Antes de aplicar a restauração, o sistema guarda automaticamente uma cópia de segurança do banco atual.</p></section>
 
-        <section class="tutorial-section" id="tutorial-estrutura"><h2><span>8</span> Setores</h2><ol><li>Abra <strong>Setores</strong>.</li><li>Informe o nome e clique em <strong>Adicionar setor</strong>.</li><li>Ao cadastrar ou editar um servidor, selecione seu setor.</li></ol><p>Essas informações alimentam os relatórios gerenciais e facilitam a organização dos servidores.</p></section>
+        <section class="tutorial-section" id="tutorial-estrutura"><h2><span>6</span> Setores</h2><ol><li>Abra <strong>Setores</strong>.</li><li>Informe o nome e clique em <strong>Adicionar setor</strong>.</li><li>Ao cadastrar ou editar um servidor, selecione seu setor.</li></ol><p>Essas informações alimentam os relatórios gerenciais e facilitam a organização dos servidores.</p></section>
 
-        <section class="tutorial-section" id="tutorial-perfil"><h2><span>9</span> Meu perfil</h2><p>Clique no seu nome ou avatar no canto superior direito. Nessa página você pode alterar e-mail ou senha, confirmando a operação com a senha atual. A conta master não pode excluir a própria conta.</p><p>Ao terminar, clique em <strong>Sair</strong> no final do menu lateral, especialmente em computadores compartilhados.</p></section>
+        <section class="tutorial-section" id="tutorial-perfil"><h2><span>6</span> Meu perfil</h2><p>Clique no seu nome ou avatar no canto superior direito. Nessa página você pode alterar e-mail ou senha, confirmando a operação com a senha atual. A conta master não pode excluir a própria conta.</p><p>Ao terminar, clique em <strong>Sair</strong> no final do menu lateral, especialmente em computadores compartilhados.</p></section>
 
-        <section class="tutorial-section" id="tutorial-administracao"><h2><span>10</span> Administração</h2><p>Disponível para contas com perfil master. Não compartilhe credenciais e use apenas os acessos necessários.</p><ul><li><strong>Cadastrar usuário:</strong> toda nova conta é criada automaticamente como Administrador.</li><li><strong>Editar:</strong> somente o master pode alterar uma conta entre Administrador e Master, além de controlar status e senha.</li><li><strong>Entrar:</strong> visualize o sistema como outra conta. Use <strong>Voltar ao Adm Master</strong> para retornar.</li><li><strong>Excluir:</strong> remova uma conta que não seja mais necessária.</li></ul><p>O Administrador faz a gestão geral de servidores, férias, abonos, calendários, anexos, estruturas e relatórios.</p></section>
+        <section class="tutorial-section" id="tutorial-administracao"><h2><span>7</span> Administração</h2><p>Disponível apenas para o master, que possui controle total.</p><ul><li><strong>Cadastrar usuário:</strong> toda nova conta é criada automaticamente como Administrador.</li><li><strong>Editar:</strong> somente o master pode alterar uma conta entre Administrador e Master, além de controlar status e senha.</li><li><strong>Entrar:</strong> visualize o sistema como outra conta. Use <strong>Voltar ao Adm Master</strong> para retornar.</li><li><strong>Excluir:</strong> remova uma conta que não seja mais necessária.</li></ul><p>O Administrador faz a gestão geral de servidores, férias, abonos, calendários, anexos, estruturas e relatórios.</p></section>
 
-        <section class="tutorial-section" id="tutorial-auditoria"><h2><span>11</span> Auditoria e permissões</h2><p>A Auditoria registra acessos, alterações, exclusões e outras ações importantes. Use a busca por usuário, ação ou IP e clique em <strong>Ver detalhes</strong>.</p><h3>Autorizar outro usuário</h3><ol><li>Entre com o master principal.</li><li>Abra <strong>Auditoria</strong>.</li><li>Em <strong>Acesso à Auditoria</strong>, selecione o usuário.</li><li>Clique em <strong>Conceder acesso</strong>.</li></ol><h3>Retirar acesso</h3><p>Na lista de usuários autorizados, clique em <strong>Retirar acesso</strong>. A proteção é aplicada imediatamente; o usuário deve atualizar a página ou entrar novamente para atualizar o menu.</p></section>
+        <section class="tutorial-section" id="tutorial-auditoria"><h2><span>9</span> Auditoria e permissões</h2><p>A Auditoria registra acessos, alterações, exclusões e outras ações importantes. Use a busca por usuário, ação ou IP e clique em <strong>Ver detalhes</strong>. Nas edições de servidores, registros e usuários, os detalhes mostram cada campo alterado, com os valores <strong>Antes</strong> e <strong>Depois</strong>.</p><h3>Autorizar outro usuário</h3><ol><li>Entre com o master principal.</li><li>Abra <strong>Auditoria</strong>.</li><li>Em <strong>Acesso à Auditoria</strong>, selecione o usuário.</li><li>Clique em <strong>Conceder acesso</strong>.</li></ol><h3>Retirar acesso</h3><p>Na lista de usuários autorizados, clique em <strong>Retirar acesso</strong>. A proteção é aplicada imediatamente; o usuário deve atualizar a página ou entrar novamente para atualizar o menu.</p></section>
 
-        <section class="tutorial-section" id="tutorial-backup"><h2><span>12</span> Backup automático</h2><p>O sistema possui rotinas de backup. Confira <strong>Relatórios</strong> para consultar o status da última cópia. A execução agendada depende da configuração do computador e da disponibilidade do destino.</p><p>Se precisar recuperar dados ou verificar o destino configurado, procure o responsável técnico antes de substituir arquivos.</p></section>
+        <section class="tutorial-section" id="tutorial-backup"><h2><span>10</span> Backup automático</h2><p>O backup é executado diariamente às <strong>17h30</strong>. Se o computador estiver desligado no horário, a tarefa será recuperada na próxima inicialização. Sem registros novos ou alterados, nenhum arquivo adicional é criado.</p><p>Destino: <code>S:\\ATUACAO MEIO\\Divisao de Apoio Administrativo\\Felippe.andreata\\Backup_gerenciador_ferias</code></p><div class="tutorial-note"><i class="bi bi-hdd-network-fill"></i><p>A unidade S: depende da rede. Durante uma queda de rede, o relatório mostra o destino como indisponível; os dados locais continuam preservados e o status volta ao normal quando a unidade for reconectada.</p></div></section>
 
-        <section class="tutorial-section" id="tutorial-problemas"><h2><span>13</span> Solução de problemas</h2><div class="tutorial-faq"><details><summary>O site não abre</summary><p>Confirme que o Apache está ativo no XAMPP e execute novamente o arquivo de abertura do sistema.</p></details><details><summary>A Auditoria não aparece</summary><p>Reinicie o servidor, atualize com <strong>Ctrl + F5</strong> e entre novamente. O master principal deve usar o e-mail contatotech.tecnologia@gmail.com.</p></details><details><summary>Outro computador não acessa</summary><p>Confirme que os computadores estão na mesma rede, que o principal está ligado e que o Firewall liberou o Node.js em redes privadas.</p></details><details><summary>O backup não apareceu</summary><p>Confira o acesso à unidade S:. Se nada mudou desde a última cópia, o sistema não cria outro arquivo.</p></details><details><summary>Uma alteração recente não aparece</summary><p>Reinicie o servidor e atualize o navegador com <strong>Ctrl + F5</strong>.</p></details></div></section>
+        <section class="tutorial-section" id="tutorial-problemas"><h2><span>10</span> Solução de problemas</h2><div class="tutorial-faq"><details><summary>O site não abre</summary><p>Confirme que o Apache está ativo no XAMPP e execute novamente o arquivo de abertura do sistema.</p></details><details><summary>A Auditoria não aparece</summary><p>Reinicie o servidor, atualize com <strong>Ctrl + F5</strong> e entre novamente. O master principal deve usar o e-mail contatotech.tecnologia@gmail.com.</p></details><details><summary>Outro computador não acessa</summary><p>Confirme que os computadores estão na mesma rede, que o principal está ligado e que o Firewall liberou o Node.js em redes privadas.</p></details><details><summary>O backup não apareceu</summary><p>Confira o acesso à unidade S:. Se nada mudou desde a última cópia, o sistema não cria outro arquivo.</p></details><details><summary>Uma alteração recente não aparece</summary><p>Reinicie o servidor e atualize o navegador com <strong>Ctrl + F5</strong>.</p></details></div></section>
     </div>`;
-    const search = $('#tutorialSearch');
-    const status = $('#tutorialSearchStatus');
-    search?.addEventListener('input', () => {
-        const query = search.value.trim().toLocaleLowerCase('pt-BR');
-        let visible = 0;
-        $('.tutorial-section', $('#content')).forEach(section => {
-            const match = !query || section.textContent.toLocaleLowerCase('pt-BR').includes(query);
-            section.hidden = !match;
-            if (match) visible++;
-        });
-        $('.tutorial-index a', $('#content')).forEach(link => {
-            const section = document.querySelector(link.getAttribute('href'));
-            link.hidden = !!section?.hidden;
-        });
-        status.textContent = query ? visible + ' tópico(s) encontrado(s).' : '';
-    });
 }
 
 async function auditoria() {
@@ -897,7 +922,8 @@ function auditActionLabel(action) {
         DELETE_EVENTO: 'Registro excluído', ADMIN_CREATE_USER: 'Usuário cadastrado pelo master',
         ADMIN_UPDATE_USER: 'Usuário atualizado pelo master', ADMIN_DELETE_USER: 'Usuário excluído pelo master',
         IMPERSONATE: 'Master acessou outro usuário', RESTORE_MASTER: 'Retorno à conta master',
-        KEEP_ALERT: 'Alerta mantido', STOP_ALERT: 'Alerta interrompido', UPDATE_PROFILE: 'Perfil atualizado'
+        KEEP_ALERT: 'Alerta mantido', STOP_ALERT: 'Alerta interrompido', UPDATE_PROFILE: 'Perfil atualizado',
+        VALIDATE_BACKUP: 'Backup validado', SCHEDULE_BACKUP_RESTORE: 'Restauração de backup preparada'
     };
     return labels[action] || action.replaceAll('_', ' ').toLowerCase();
 }
@@ -908,6 +934,9 @@ window.openAuditDetails = id => {
     let details = {};
     try { details = JSON.parse(record.details || '{}'); } catch { details = { informação: record.details }; }
     const entries = Object.entries(details);
+    const changeKeys=[...new Set([...Object.keys(details.before||{}),...Object.keys(details.after||{})])];
+    const changes=changeKeys.filter(key=>String(details.before?.[key]??'')!==String(details.after?.[key]??''));
+    const regularEntries=entries.filter(([key])=>!['before','after'].includes(key));
     modal(`
         <h2>Detalhes da auditoria</h2>
         <dl class="audit-details-list">
@@ -915,8 +944,9 @@ window.openAuditDetails = id => {
             <div><dt>Usuário</dt><dd>${esc(record.username || 'Sistema')}</dd></div>
             <div><dt>Ação</dt><dd>${esc(auditActionLabel(record.action))}</dd></div>
             <div><dt>Endereço IP</dt><dd>${esc(record.ip || '—')}</dd></div>
-            ${entries.map(([key, value]) => `<div><dt>${esc(key.replaceAll('_', ' '))}</dt><dd>${esc(Array.isArray(value) ? value.join(', ') : value)}</dd></div>`).join('')}
+            ${regularEntries.map(([key, value]) => `<div><dt>${esc(key.replaceAll('_', ' '))}</dt><dd>${esc(typeof value==='object'?JSON.stringify(value):Array.isArray(value) ? value.join(', ') : value)}</dd></div>`).join('')}
         </dl>
+        ${changes.length?`<h3>Alterações realizadas</h3><div class="audit-change-table"><div class="audit-change-head"><strong>Campo</strong><strong>Antes</strong><strong>Depois</strong></div>${changes.map(key=>`<div><strong>${esc(key.replaceAll('_',' '))}</strong><span>${esc(details.before?.[key]??'—')}</span><span>${esc(details.after?.[key]??'—')}</span></div>`).join('')}</div>`:''}
         ${entries.length ? '' : '<p class="empty compact">Esta ação não possui informações adicionais.</p>'}
         <div class="form-actions"><button type="button" class="primary" onclick="closeModal()">Fechar</button></div>
     `);

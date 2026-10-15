@@ -48,3 +48,98 @@ body.dark-mode .tutorial-section code {
     color: #9fe9e4 !important;
     background: #0d161d !important;
 }
+
+/* Auditoria: contraste do painel de permissões no modo escuro. */
+body.dark-mode .audit-access-panel {
+    color: #d7e2e9 !important;
+    background: #18232d !important;
+    border-color: #3b4b58 !important;
+}
+
+body.dark-mode .audit-access-panel h3,
+body.dark-mode .audit-access-panel strong,
+body.dark-mode .audit-access-panel label {
+    color: #f7fafc !important;
+}
+
+body.dark-mode .audit-access-panel small,
+body.dark-mode .audit-access-list small {
+    color: #b8c7d1 !important;
+}
+
+body.dark-mode .audit-access-panel select {
+    color: #edf4f8 !important;
+    background: #111c25 !important;
+    border-color: #435463 !important;
+}
+
+body.dark-mode .audit-access-panel select option {
+    color: #edf4f8;
+    background: #111c25;
+}
+
+body.dark-mode .audit-access-user {
+    color: #e3edf3 !important;
+    background: #22323f !important;
+    border: 1px solid #3b4b58;
+}
+
+/* Modais: contraste completo no modo escuro, inclusive preenchimento automático. */
+body.dark-mode dialog,
+body.dark-mode #modalBody {
+    color: #e7edf2 !important;
+    background: #18232d !important;
+}
+
+body.dark-mode #modalBody h1,
+body.dark-mode #modalBody h2,
+body.dark-mode #modalBody h3,
+body.dark-mode .confirm-copy h2,
+body.dark-mode .conflict-dialog h2 {
+    color: #f7fafc !important;
+}
+
+body.dark-mode #modalBody label,
+body.dark-mode #modalBody p,
+body.dark-mode #modalBody li,
+body.dark-mode #modalBody strong {
+    color: #d7e2e9 !important;
+}
+
+body.dark-mode #modalBody small,
+body.dark-mode .confirm-copy p,
+body.dark-mode #modalConflitoTexto {
+    color: #b8c7d1 !important;
+}
+
+body.dark-mode #modalBody input,
+body.dark-mode #modalBody select,
+body.dark-mode #modalBody textarea {
+    color: #f1f6f9 !important;
+    background: #111c25 !important;
+    border-color: #435463 !important;
+    caret-color: #f1f6f9;
+}
+
+body.dark-mode #modalBody input::placeholder,
+body.dark-mode #modalBody textarea::placeholder {
+    color: #91a3af !important;
+}
+
+body.dark-mode #modalBody input:-webkit-autofill,
+body.dark-mode #modalBody input:-webkit-autofill:hover,
+body.dark-mode #modalBody input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #f1f6f9 !important;
+    -webkit-box-shadow: 0 0 0 1000px #111c25 inset !important;
+    box-shadow: 0 0 0 1000px #111c25 inset !important;
+    border-color: #435463 !important;
+    transition: background-color 9999s ease-out 0s;
+}
+
+body.dark-mode dialog .close {
+    color: #c9d6de !important;
+}
+
+body.dark-mode dialog .close:hover {
+    color: #ffffff !important;
+}
