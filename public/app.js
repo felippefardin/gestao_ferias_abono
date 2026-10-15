@@ -956,6 +956,7 @@ window.openServidor = async id => {
         e.preventDefault();
         const data = formData(e.target);
         if (!data.setor_id) { toast('Selecione um setor ou Sem setor.', true); return; }
+        if (data.setor_id === 'sem_setor') data.setor_id = '';
         const save = payload => api(id ? `/api/servidores/${id}` : '/api/servidores', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
         try {
             await save(data);
