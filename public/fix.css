@@ -143,3 +143,9 @@ body.dark-mode dialog .close {
 body.dark-mode dialog .close:hover {
     color: #ffffff !important;
 }
+
+.password-field { position: relative; display: block; width: 100%; min-width: 0; }
+.password-field > input { width: 100%; box-sizing: border-box; padding-right: 3.25rem !important; }
+.password-field > .password-toggle { position: absolute; right: .35rem; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; min-height: 0; padding: 0; margin: 0; border: 0; border-radius: .4rem; background: transparent; color: inherit; cursor: pointer; }
+.password-toggle:focus-visible { outline: 2px solid #2788ca; outline-offset: 1px; }
+.password-toggle:hover { background: rgba(120,140,160,.15); }
