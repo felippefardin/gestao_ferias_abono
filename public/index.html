@@ -12,7 +12,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="public/style.css?v=7">
-    <link rel="stylesheet" href="public/fix.css?v=8">
+    <link rel="stylesheet" href="public/fix.css?v=16">
 </head>
 <body>
     <div id="toast"></div>
@@ -23,66 +23,61 @@
         <button id="btnRestoreMaster">Voltar ao Adm Master</button>
     </div>
 
-    <!-- TELA DE LOGIN / REGISTRO -->
-    <section id="auth" class="auth-wrap">
-        <div class="brand-panel">
-            <div class="logo">GF</div>
-            <h1>Gestão de Pessoas</h1>
-            <p>Férias, abonos, alertas e histórico em um só lugar.</p>
-            <div class="feature">✓ Controle seguro pela rede interna</div>
-            <div class="feature">✓ Avisos automáticos e personalizados</div>
-            <div class="feature">✓ Histórico preservado por servidor</div>
-        </div>
-        <div class="auth-card">
-            <div class="tabs">
-                <button class="active" data-auth="login">Entrar</button>
-                <button data-auth="register">Criar conta</button>
+    <!-- Acesso e cadastro lado a lado -->
+    <section id="auth" class="auth-wrap auth-split" aria-label="Acesso ao sistema">
+        <button type="button" id="authThemeToggle" class="auth-theme-toggle"><i class="bi bi-moon-stars" aria-hidden="true"></i> <span>Modo escuro</span></button>
+        <div class="auth-columns">
+            <div class="auth-pane auth-entry">
+                <h1><i class="bi bi-calendar2-check" aria-hidden="true"></i> Gestão de<br>Férias e Abonos</h1>
+                <p class="auth-intro">Entre para acompanhar servidores, períodos e lembretes em um só lugar.</p>
+                <button type="button" data-auth="login" hidden>Entrar</button>
+                <button type="button" data-auth="register" hidden>Criar conta</button>
+                <form id="loginForm">
+                    <label>Usuário, e-mail, CPF ou matrícula<input name="identifier" required autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+                    <label>Senha<input type="password" name="password" required autocomplete="current-password"></label>
+                    <p id="loginStatus" class="login-status" role="alert" aria-live="polite"></p>
+                    <button class="primary" id="loginSubmit">Entrar</button>
+                    <button type="button" class="link" id="forgotBtn">Esqueci minha senha</button>
+                </form>
+                <form id="forgotForm" hidden>
+                    <h2>Recuperar senha</h2>
+                    <p class="auth-intro">Informe seu e-mail para receber o código de recuperação.</p>
+                    <label>E-mail cadastrado<input type="email" name="email" required autocomplete="email"></label>
+                    <button class="primary">Enviar código</button>
+                    <button type="button" class="link backLogin">Voltar para entrar</button>
+                </form>
+                <form id="resetForm" hidden>
+                    <h2>Redefinir senha</h2><input type="hidden" name="email">
+                    <label>Código de 6 dígitos<input name="code" inputmode="numeric" required autocomplete="one-time-code"></label>
+                    <label>Nova senha<input type="password" name="password" minlength="8" required autocomplete="new-password"></label>
+                    <button class="primary">Redefinir senha</button>
+                    <button type="button" class="link backLogin">Voltar para entrar</button>
+                </form>
+                <div class="auth-help-box">
+                    <strong>Primeira vez por aqui?</strong>
+                    <p>Crie sua conta e comece a organizar férias, abonos e compromissos.</p>
+                    <details><summary><i class="bi bi-book" aria-hidden="true"></i> Ver primeiros passos</summary><ol><li>Preencha o cadastro ao lado e clique em Criar usuário.</li><li>Entre com sua conta e cadastre as pessoas em Servidores.</li><li>Registre férias e abonos ou crie lembretes individuais.</li><li>Consulte o menu Tutorial para ver as orientações completas.</li></ol></details>
+                </div>
+                <div class="auth-help-box auth-network-box">
+                    <strong>Acesso pela rede local</strong>
+                    <p>Em outro computador conectado à mesma rede, abra:</p>
+                    <a id="authNetworkLink" class="auth-network-link" href="http://03-D000363/gestao-ferias-abonos/">http://03-D000363/gestao-ferias-abonos/</a>
+                    <button type="button" class="auth-copy-link" id="authCopyLink">Copiar link</button>
+                    <p class="auth-network-note">O computador que hospeda o sistema precisa estar ligado, com o Apache e o serviço do sistema em execução.</p>
+                </div>
             </div>
-            
-            <form id="loginForm">
-                <h2>Bem-vindo</h2>
-                <div class="access-info">
-                    <strong>Endereço para compartilhar</strong>
-                    <a href="http://03-D000363/gestao-ferias-abonos/">http://03-D000363/gestao-ferias-abonos/</a>
-                    <small>Neste computador: http://localhost/gestao-ferias-abonos/</small>
-                </div>
-                <label>Usuário, e-mail, CPF ou matrícula
-                    <input name="identifier" required autocomplete="username" autocapitalize="none" spellcheck="false">
-                </label>
-                <label>Senha
-                    <input type="password" name="password" required autocomplete="current-password">
-                </label>
-                <p id="loginStatus" class="login-status" role="alert" aria-live="polite"></p>
-                <button class="primary" id="loginSubmit">Entrar</button>
-                <button type="button" class="link" id="forgotBtn">Esqueci minha senha</button>
-            </form>
-
-            <form id="registerForm" hidden>
-                <h2>Criar conta</h2>
-                <label>Nome de usuário *<input name="username" required></label>
-                <label>E-mail<input type="email" name="email"></label>
-                <div class="grid2">
-                    <label>CPF<input name="cpf"></label>
-                    <label>Matrícula<input name="matricula"></label>
-                </div>
-                <label>Senha *<input type="password" name="password" minlength="8" required></label>
-                <button class="primary">Criar conta</button>
-            </form>
-
-            <form id="forgotForm" hidden>
-                <h2>Recuperar senha</h2>
-                <label>E-mail cadastrado<input type="email" name="email" required></label>
-                <button class="primary">Enviar código</button>
-                <button type="button" class="link backLogin">Voltar</button>
-            </form>
-
-            <form id="resetForm" hidden>
-                <h2>Informar código</h2>
-                <input type="hidden" name="email">
-                <label>Código de 6 dígitos<input name="code" inputmode="numeric" required></label>
-                <label>Nova senha<input type="password" name="password" minlength="8" required></label>
-                <button class="primary">Redefinir senha</button>
-            </form>
+            <div class="auth-pane auth-registration">
+                <h2>Criar usuário</h2>
+                <p class="auth-intro">Crie sua conta para acessar as informações do sistema e manter seu próprio perfil.</p>
+                <form id="registerForm">
+                    <label>Nome de usuário *<input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Ex.: felippe.andreata"></label>
+                    <label>E-mail<input type="email" name="email" autocomplete="email"></label>
+                    <div class="grid2"><label>CPF<input name="cpf" inputmode="numeric"></label><label>Matrícula<input name="matricula"></label></div>
+                    <label>Senha *<input type="password" name="password" minlength="8" required autocomplete="new-password"><small>Use pelo menos 8 caracteres.</small></label>
+                    <label>Confirmar senha *<input type="password" name="confirmPassword" minlength="8" required autocomplete="new-password"></label>
+                    <button class="primary">Criar usuário</button>
+                </form>
+            </div>
         </div>
     </section>
 
@@ -195,6 +190,6 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
-    <script src="public/app.js?v=22"></script>
+    <script src="public/app.js?v=28"></script>
 </body>
 </html>
