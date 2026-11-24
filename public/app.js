@@ -259,8 +259,22 @@ function duracaoDasFerias(inicio, fim) {
     return dias ? ' <small>(' + dias + (dias === 1 ? ' dia)' : ' dias)') + '</small>' : '';
 }
 
+function ordenarPorNomeDoServidor(items) {
+    return [...items].sort((a, b) => {
+        const porNome = String(a.servidor_nome || '').localeCompare(
+            String(b.servidor_nome || ''),
+            'pt-BR',
+            { sensitivity: 'base' }
+        );
+        if (porNome) return porNome;
+        return String(a.inicio || '').localeCompare(String(b.inicio || ''));
+    });
+}
+
+
 function eventRows(items, archived = false, mostrarDias = false) {
     if (!items.length) return `<div class="empty">Nenhum registro encontrado.</div>`;
+    const orderedItems = ordenarPorNomeDoServidor(items);
     return `
     <table>
         <thead>
@@ -275,7 +289,7 @@ function eventRows(items, archived = false, mostrarDias = false) {
             </tr>
         </thead>
         <tbody>
-            ${items.map(e => `
+            ${orderedItems.map(e => `
                 <tr id="evento-${e.id}" tabindex="-1" class="${archived && e.dias_arquivado > 1826 ? 'old' : ''}">
                     <td><strong>${esc(e.servidor_nome)}</strong><br><small>${esc(e.observacoes || '')}</small></td>
                     <td><span class="badge ${e.tipo}">${e.tipo === 'ferias' ? 'Férias' : 'Abono'}</span></td>
@@ -353,6 +367,41 @@ async function responderAlerta(id, acao) {
     }
 }
 
+function adicionarBuscaServidores(lista, itens, obterTexto, placeholder) {
+    if (!itens.length) return;
+
+    const normalizar = texto => texto.normalize('NFD')
+        .replace(/\p{M}/gu, '').toLocaleLowerCase('pt-BR').trim();
+    const entradas = itens.map(item => ({ item, texto: normalizar(obterTexto(item)) }));
+    const barra = document.createElement('div');
+    barra.className = 'filter-bar';
+    barra.innerHTML = '<label>Pesquisar servidores<input type="search" autocomplete="off"></label>';
+    const campo = $('input', barra);
+    campo.placeholder = placeholder;
+    const aviso = document.createElement('p');
+    aviso.className = 'empty';
+    aviso.setAttribute('role', 'status');
+    aviso.textContent = 'Nenhum servidor encontrado.';
+    aviso.hidden = true;
+    lista.before(barra);
+    lista.after(aviso);
+
+    campo.addEventListener('input', () => {
+        const termos = normalizar(campo.value).split(/\s+/).filter(Boolean);
+        let encontrados = 0;
+        for (const { item, texto } of entradas) {
+            const visivel = termos.every(termo => texto.includes(termo));
+            if (visivel) item.style.removeProperty('display');
+            else item.style.setProperty('display', 'none', 'important');
+            if (visivel) encontrados++;
+        }
+        aviso.hidden = encontrados > 0;
+    });
+    campo.addEventListener('keydown', evento => {
+        if (evento.key === 'Enter') evento.preventDefault();
+    });
+}
+
 function servidores() {
     $('#content').innerHTML = `
     <div class="page">
@@ -403,6 +452,13 @@ function servidores() {
             </table>` : '<div class="empty">Nenhum servidor cadastrado.</div>'}
         </div>
     </div>`;
+
+    adicionarBuscaServidores(
+        $('#content .table-wrap'),
+        $$('#content .table-wrap tbody tr'),
+        linha => [...linha.cells].slice(0, 6).map(celula => celula.textContent).join(' '),
+        'Nome, matrícula, setor ou e-mail'
+    );
 }
 
 function eventos(tipo) {
@@ -422,6 +478,13 @@ function eventos(tipo) {
         </div>
         <div class="table-wrap">${eventRows(items, false, tipo === 'ferias')}</div>
     </div>`;
+
+    adicionarBuscaServidores(
+        $('#content .table-wrap'),
+        $$('#content .table-wrap tbody tr'),
+        linha => linha.cells[0]?.textContent || '',
+        'Digite o nome do servidor'
+    );
 }
 
 function arquivados() {
@@ -931,6 +994,18 @@ document.addEventListener('click', () => {
     }
 });
 
+const exportColumns = [
+    { key: 'servidor', label: 'Servidor', value: evento => evento.servidor_nome },
+    { key: 'tipo', label: 'Tipo', value: evento => evento.tipo === 'ferias' ? 'Férias' : 'Abono' },
+    { key: 'inicio', label: 'Data inicial', value: evento => fmt(evento.inicio) },
+    { key: 'fim', label: 'Data final', value: evento => fmt(evento.fim) },
+    { key: 'dias', label: 'Dias', value: evento => diasDoPeriodo(evento.inicio, evento.fim) },
+    { key: 'alerta', label: 'Alerta extra', value: evento => fmt(evento.alerta_extra) },
+    { key: 'observacoes', label: 'Observações', value: evento => evento.observacoes || '' },
+    { key: 'criado_por', label: 'Criado por', value: evento => evento.criado_por || 'Conta removida' }
+];
+const defaultExportColumnKeys = new Set(['servidor', 'inicio', 'fim', 'dias']);
+
 window.openExport = tipo => {
     const label = tipo === 'ferias' ? 'Férias' : 'Abonos';
     modal(`
@@ -941,11 +1016,23 @@ window.openExport = tipo => {
                 <label>Período inicial<input type="date" name="inicio"></label>
                 <label>Período final<input type="date" name="fim"></label>
             </div>
-            <div class="server-picker">
-                <div class="server-picker-head"><strong>Servidores</strong><button type="button" class="icon-btn" id="toggleExportServers">Desmarcar todos</button></div>
-                <div class="server-picker-list">
-                    ${state.servidores.map(s => `<label class="server-check"><input type="checkbox" name="servidores" value="${s.id}" checked><span>${esc(s.nome)}</span></label>`).join('')}
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;align-items:start">
+            <div class="server-picker" style="max-height:none;overflow:visible">
+                <div class="server-picker-head"><strong>Servidores</strong><button type="button" class="icon-btn" id="toggleExportServers">Selecionar todos</button></div>
+                <div class="filter-bar export-server-search">
+                    <label>Pesquisar por nome<input type="search" id="exportServerSearch" placeholder="Digite o nome do servidor" autocomplete="off"></label>
                 </div>
+                <div class="server-picker-list" style="max-height:190px;overflow-y:auto;padding:2px 10px">
+                    ${state.servidores.map(s => `<label class="server-check" style="flex-direction:row;justify-content:flex-start;gap:8px"><input type="checkbox" name="servidores" value="${s.id}"><span>${esc(s.nome)}</span></label>`).join('')}
+                </div>
+                <p class="empty" id="exportServerSearchEmpty" role="status" hidden>Nenhum servidor encontrado.</p>
+            </div>
+            <div class="server-picker" style="max-height:none;overflow:visible">
+                <div class="server-picker-head"><strong>Colunas do arquivo</strong><button type="button" class="icon-btn" id="toggleExportColumns">Selecionar todas</button></div>
+                <div class="server-picker-list" style="grid-template-columns: 1fr">
+                    ${exportColumns.map(coluna => `<label class="server-check" style="flex-direction:row;justify-content:flex-start;gap:8px"><input type="checkbox" name="colunas" value="${coluna.key}" ${defaultExportColumnKeys.has(coluna.key) ? 'checked' : ''}><span>${coluna.label}</span></label>`).join('')}
+                </div>
+            </div>
             </div>
             <div class="export-format" role="radiogroup" aria-label="Formato do arquivo">
                 <label class="format-option"><input type="radio" name="formato" value="excel" checked><span><strong>Excel</strong><br><small>Arquivo .csv compatível com Excel</small></span></label>
@@ -957,35 +1044,73 @@ window.openExport = tipo => {
             </div>
         </form>
     `);
-    let allSelected = true;
+    const listaServidoresExportacao = $('#exportForm .server-picker-list');
+    const campoBuscaExportacao = $('#exportServerSearch');
+    const avisoBuscaExportacao = $('#exportServerSearchEmpty');
+    const normalizarNome = texto => String(texto || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('pt-BR')
+        .trim();
+    const servidoresExportacao = $$('.server-check', listaServidoresExportacao).map(item => ({
+        item,
+        nome: normalizarNome($('span', item)?.textContent)
+    }));
+
+    campoBuscaExportacao.addEventListener('input', () => {
+        const termos = normalizarNome(campoBuscaExportacao.value).split(/\s+/).filter(Boolean);
+        let encontrados = 0;
+
+        servidoresExportacao.forEach(({ item, nome }) => {
+            const encontrado = termos.every(termo => nome.includes(termo));
+            if (encontrado) item.style.removeProperty('display');
+            else item.style.setProperty('display', 'none', 'important');
+            if (encontrado) encontrados++;
+        });
+
+        avisoBuscaExportacao.hidden = encontrados > 0;
+    });
+    campoBuscaExportacao.addEventListener('keydown', event => {
+        if (event.key === 'Enter') event.preventDefault();
+    });
+    let allSelected = false;
     $('#toggleExportServers').onclick = event => {
         allSelected = !allSelected;
         $$('#exportForm [name="servidores"]').forEach(input => input.checked = allSelected);
         event.currentTarget.textContent = allSelected ? 'Desmarcar todos' : 'Selecionar todos';
     };
+    let allColumnsSelected = false;
+    $('#toggleExportColumns').onclick = event => {
+        allColumnsSelected = !allColumnsSelected;
+        $$('#exportForm [name="colunas"]').forEach(input => input.checked = allColumnsSelected);
+        event.currentTarget.textContent = allColumnsSelected ? 'Desmarcar todas' : 'Selecionar todas';
+    };
     $('#exportForm').onsubmit = event => {
         event.preventDefault();
         const form = event.currentTarget;
         const ids = new Set($$('[name="servidores"]:checked', form).map(input => Number(input.value)));
+        const columnKeys = new Set($$('[name="colunas"]:checked', form).map(input => input.value));
+        const columns = exportColumns.filter(coluna => columnKeys.has(coluna.key));
         const inicio = form.inicio.value;
         const fim = form.fim.value;
         if (inicio && fim && fim < inicio) return toast('A data final deve ser igual ou posterior à inicial.', true);
         if (!ids.size) return toast('Selecione ao menos um servidor.', true);
+        if (!columns.length) return toast('Selecione ao menos uma coluna para o arquivo.', true);
         const rows = state.eventos.filter(e => e.tipo === tipo && ids.has(Number(e.servidor_id)) && (!inicio || e.fim >= inicio) && (!fim || e.inicio <= fim));
         if (!rows.length) return toast('Nenhum registro encontrado com os filtros informados.', true);
-        const meta = { tipo, label, inicio, fim };
+        const meta = { tipo, label, inicio, fim, columns };
         if (form.formato.value === 'excel') exportExcel(rows, meta); else exportPdf(rows, meta);
         closeModal();
         toast(`${rows.length} registro(s) preparado(s) para exportação.`);
     };
 };
 
-function exportRows(rows) {
-    return rows.map(e => [e.servidor_nome, e.tipo === 'ferias' ? 'Férias' : 'Abono', fmt(e.inicio), fmt(e.fim), fmt(e.alerta_extra), e.observacoes || '', e.criado_por || 'Conta removida']);
+function exportRows(rows, columns) {
+    return ordenarPorNomeDoServidor(rows).map(evento => columns.map(coluna => coluna.value(evento)));
 }
 
 function exportExcel(rows, meta) {
-    const headers = ['Servidor', 'Tipo', 'Data inicial', 'Data final', 'Alerta extra', 'Observações', 'Criado por'];
+    const headers = meta.columns.map(coluna => coluna.label);
     const csvCell = value => {
         let text = String(value ?? '').replace(/\r?\n/g, ' ').trim();
         // Impede que conteúdos digitados pelo usuário sejam interpretados como fórmulas.
@@ -994,7 +1119,7 @@ function exportExcel(rows, meta) {
     };
     // "sep=;" faz o Excel brasileiro reconhecer as colunas mesmo quando o
     // separador regional do Windows é ponto e vírgula. O BOM preserva acentos.
-    const csv = `sep=;\r\n${[headers, ...exportRows(rows)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
+    const csv = `sep=;\r\n${[headers, ...exportRows(rows, meta.columns)].map(row => row.map(csvCell).join(';')).join('\r\n')}`;
     downloadBlob(new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }), `${meta.tipo}-${new Date().toISOString().slice(0, 10)}.csv`);
 }
 
@@ -1010,8 +1135,8 @@ function exportPdf(rows, meta) {
     if (!popup) return toast('Permita a abertura de janelas para gerar o PDF.', true);
     popup.opener = null;
     const period = meta.inicio || meta.fim ? `${meta.inicio ? fmt(meta.inicio) : 'Início'} a ${meta.fim ? fmt(meta.fim) : 'Hoje'}` : 'Todos os períodos';
-    const body = exportRows(rows).map(row => `<tr>${row.map(value => `<td>${esc(value)}</td>`).join('')}</tr>`).join('');
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${meta.label}</title><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial;color:#173042}h1{margin:0 0 6px;color:#12314b}.meta{color:#627482;margin-bottom:20px}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#12314b;color:#fff;text-align:left}th,td{padding:8px;border:1px solid #dbe4e9;vertical-align:top}tr:nth-child(even){background:#f4f7f8}.footer{margin-top:14px;font-size:9px;color:#71808c}</style></head><body><h1>Relatório de ${meta.label}</h1><div class="meta">Período: ${period} · ${rows.length} registro(s)</div><table><thead><tr>${['Servidor','Tipo','Data inicial','Data final','Alerta extra','Observações','Criado por'].map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><div class="footer">Gerado em ${new Date().toLocaleString('pt-BR')}</div><script>window.onload=()=>{window.print()}<\/script></body></html>`);
+    const body = exportRows(rows, meta.columns).map(row => `<tr>${row.map(value => `<td>${esc(value)}</td>`).join('')}</tr>`).join('');
+    popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${meta.label}</title><style>@page{size:A4 landscape;margin:14mm}body{font-family:Arial;color:#173042}h1{margin:0 0 6px;color:#12314b}.meta{color:#627482;margin-bottom:20px}table{width:100%;border-collapse:collapse;font-size:10px}th{background:#12314b;color:#fff;text-align:left}th,td{padding:8px;border:1px solid #dbe4e9;vertical-align:top}tr:nth-child(even){background:#f4f7f8}.footer{margin-top:14px;font-size:9px;color:#71808c}</style></head><body><h1>Relatório de ${meta.label}</h1><div class="meta">Período: ${period} · ${rows.length} registro(s)</div><table><thead><tr>${meta.columns.map(coluna => `<th>${esc(coluna.label)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><div class="footer">Gerado em ${new Date().toLocaleString('pt-BR')}</div><script>window.onload=()=>{window.print()}<\/script></body></html>`);
     popup.document.close();
 }
 
