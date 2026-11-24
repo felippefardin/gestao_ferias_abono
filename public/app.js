@@ -238,7 +238,28 @@ if ($('#btnRestoreMaster')) {
 /* =========================================================
    RENDERIZADORES DE TABELA E SEÇÕES
    ========================================================= */
-function eventRows(items, archived = false) {
+const MS_POR_DIA = 86_400_000;
+
+function diasDoPeriodo(inicio, fim) {
+    const primeiro = Date.parse(inicio + 'T00:00:00Z');
+    const ultimo = Date.parse(fim + 'T00:00:00Z');
+    return ultimo >= primeiro ? (ultimo - primeiro) / MS_POR_DIA + 1 : 0;
+}
+
+function fimDasFerias(inicio, dias) {
+    if (!inicio || !Number.isSafeInteger(dias) || dias < 1) return '';
+    const fim = new Date(Date.parse(inicio + 'T00:00:00Z') + (dias - 1) * MS_POR_DIA);
+    return Number.isFinite(fim.getTime()) && fim.getUTCFullYear() <= 9999
+        ? fim.toISOString().slice(0, 10)
+        : '';
+}
+
+function duracaoDasFerias(inicio, fim) {
+    const dias = diasDoPeriodo(inicio, fim);
+    return dias ? ' <small>(' + dias + (dias === 1 ? ' dia)' : ' dias)') + '</small>' : '';
+}
+
+function eventRows(items, archived = false, mostrarDias = false) {
     if (!items.length) return `<div class="empty">Nenhum registro encontrado.</div>`;
     return `
     <table>
@@ -258,7 +279,7 @@ function eventRows(items, archived = false) {
                 <tr id="evento-${e.id}" tabindex="-1" class="${archived && e.dias_arquivado > 1826 ? 'old' : ''}">
                     <td><strong>${esc(e.servidor_nome)}</strong><br><small>${esc(e.observacoes || '')}</small></td>
                     <td><span class="badge ${e.tipo}">${e.tipo === 'ferias' ? 'Férias' : 'Abono'}</span></td>
-                    <td>${fmt(e.inicio)} —${fmt(e.fim)}</td>
+                    <td>${fmt(e.inicio)} — ${fmt(e.fim)}${mostrarDias ? duracaoDasFerias(e.inicio, e.fim) : ''}</td>
                     <td>${fmt(e.alerta_extra)}</td>
                     <td><span class="owner-chip"><i class="bi bi-person-circle" aria-hidden="true"></i>${esc(e.criado_por || 'Conta removida')}</span></td>
                     ${archived ? `<td>${e.dias_arquivado > 1826 ? '<span class="redtext">Mais de 5 anos</span>' : Math.max(0, Math.floor(e.dias_arquivado / 365)) + ' ano(s)'}</td>` : ''}
@@ -399,7 +420,7 @@ function eventos(tipo) {
                 <button class="primary" onclick="openEvent('${tipo}')"><svg class="action-add-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg><span>Registrar ${tipo === 'ferias' ? 'férias' : 'abono'}</span></button>
             </div>
         </div>
-        <div class="table-wrap">${eventRows(items)}</div>
+        <div class="table-wrap">${eventRows(items, false, tipo === 'ferias')}</div>
     </div>`;
 }
 
@@ -538,7 +559,7 @@ function tutorial() {
         <section class="tutorial-section" id="tutorial-visao"><h2><span>2</span> Visão geral</h2><ol><li>Depois de entrar, abra <strong>Visão geral</strong> no menu lateral.</li><li>Confira os indicadores, os próximos períodos de ausência e os avisos.</li><li>Use os atalhos disponíveis para cadastrar servidores ou criar registros.</li><li>Clique no sino para consultar notificações específicas da sua conta.</li></ol><p>Os dados exibidos dependem dos cadastros e períodos registrados no sistema.</p></section>
         <section class="tutorial-section" id="tutorial-servidores"><h2><span>3</span> Cadastrar servidores</h2><ol><li>Abra <strong>Servidores</strong>.</li><li>Clique em <strong>Cadastrar servidor</strong>.</li><li>Informe dados pessoais, setor e o direito anual de abono (padrão de 6 dias).</li><li>Clique em <strong>Salvar</strong>.</li></ol><h3>Importação e histórico</h3><p>Use <strong>Importar CSV</strong> para cadastrar várias pessoas. O arquivo pode usar vírgula ou ponto e vírgula e deve conter a coluna <code>nome</code>; também aceita <code>funcao,email,cpf,matricula,abono_total</code>. Em <strong>Histórico</strong>, consulte períodos, anexos, compromissos e movimentações da pessoa. Use <strong>Criar lembrete</strong> para um compromisso individual, <strong>Arquivar</strong> para retirar o cadastro da lista de ativos e <strong>Excluir definitivamente</strong> para apagar o cadastro e todos os dados vinculados, após confirmação.</p><h3>Saldo anual de abono</h3><p>O direito a abono vale de 1º de janeiro a 31 de dezembro. O saldo não utilizado vence e não acumula para o ano seguinte. Um abono não pode atravessar a virada do ano.</p><div class="tutorial-note"><i class="bi bi-info-circle-fill"></i><p>O sistema avisa quando encontra dados semelhantes e impede lançamentos acima do saldo disponível no respectivo ano. Use Arquivar para preservar o cadastro e todos os registros na tela Arquivados. Nessa tela é possível consultar o histórico, reativar ou excluir definitivamente. Excluir definitivamente apaga o servidor, férias, abonos, lembretes, anexos e histórico após confirmação.</p></div></section>
 
-        <section class="tutorial-section" id="tutorial-registros"><h2><span>4</span> Registrar férias e abonos</h2><ol><li>Abra <strong>Férias</strong> ou <strong>Abonos</strong>, ou use <strong>Novo registro</strong>.</li><li>Selecione o servidor e o tipo do registro.</li><li>Informe as datas inicial e final.</li><li>Adicione alerta extra e observações, se necessário.</li><li>Clique em <strong>Salvar registro</strong>.</li></ol><p>Após salvar, use <strong>Anexos</strong> para incluir documentos de até 5 MB. Consulte todos os períodos no menu <strong>Calendário</strong>.</p><h3>Como o saldo é descontado</h3><p>Ao salvar abono, os dias já entram no cálculo do saldo anual, mesmo quando o início é futuro. Férias são acompanhadas pelos períodos lançados e pelo total usufruído no Histórico, sem limite fixo de 30 dias. A contagem inclui a data inicial, a final, fins de semana e feriados. Exemplo: de 10 a 12 são 3 dias.</p><p>Editar um período recalcula o saldo; excluir esse período devolve os dias ao saldo correspondente. Encerrar ou arquivar um período não devolve dias. Responder a alertas e criar lembretes não desconta saldo.</p><p>O abono é calculado por ano civil; a lista de servidores mostra o saldo do ano atual. As férias são consultadas por período no Histórico; o total usufruído considera apenas períodos encerrados.</p><h3>Conflito de datas</h3><p>Quando houver sobreposição, escolha <strong>Voltar e ajustar</strong> para corrigir ou <strong>Continuar mesmo assim</strong> quando o lançamento estiver correto.</p><h3>Editar ou excluir</h3><p>Somente quem criou o registro ou o usuário master pode alterá-lo. A indicação <strong>Somente leitura</strong> informa que o lançamento pertence a outro usuário.</p></section>
+        <section class="tutorial-section" id="tutorial-registros"><h2><span>4</span> Registrar férias e abonos</h2><ol><li>Abra <strong>Férias</strong> ou <strong>Abonos</strong>, ou use <strong>Novo registro</strong>.</li><li>Selecione o servidor e o tipo do registro.</li><li>Para férias, informe a data inicial e o número de dias. Para abono, informe as datas inicial e final.</li><li>Adicione alerta extra e observações, se necessário.</li><li>Clique em <strong>Salvar registro</strong>.</li></ol><p>Após salvar, use <strong>Anexos</strong> para incluir documentos de até 5 MB. Consulte todos os períodos no menu <strong>Calendário</strong>.</p><h3>Como o saldo é descontado</h3><p>Ao salvar abono, os dias já entram no cálculo do saldo anual, mesmo quando o início é futuro. Férias são acompanhadas pelos períodos lançados e pelo total usufruído no Histórico, sem limite fixo de 30 dias. A contagem inclui a data inicial, a final, fins de semana e feriados. Exemplo: de 10 a 12 são 3 dias.</p><p>Editar um período recalcula o saldo; excluir esse período devolve os dias ao saldo correspondente. Encerrar ou arquivar um período não devolve dias. Responder a alertas e criar lembretes não desconta saldo.</p><p>O abono é calculado por ano civil; a lista de servidores mostra o saldo do ano atual. As férias são consultadas por período no Histórico; o total usufruído considera apenas períodos encerrados.</p><h3>Conflito de datas</h3><p>Quando houver sobreposição, escolha <strong>Voltar e ajustar</strong> para corrigir ou <strong>Continuar mesmo assim</strong> quando o lançamento estiver correto.</p><h3>Editar ou excluir</h3><p>Somente quem criou o registro ou o usuário master pode alterá-lo. A indicação <strong>Somente leitura</strong> informa que o lançamento pertence a outro usuário.</p></section>
 
         <section class="tutorial-section" id="tutorial-calendario"><h2><span>5</span> Calendário</h2><p>Abra <strong>Calendário</strong> para visualizar férias, abonos e lembretes individuais por mês. Os compromissos aparecem na data agendada, com o nome do servidor e o título do lembrete. Use <strong>Anterior</strong> e <strong>Próximo</strong> para navegar.</p><ul><li>Cada registro recebe uma cor exclusiva, mantida em todos os dias do período.</li><li>A legenda identifica servidor, tipo e datas.</li><li>Filtre por servidor, setor e tipo; use <strong>Limpar filtros</strong> para voltar à visão completa.</li><li>Ao posicionar o ponteiro sobre o registro, o sistema mostra seus detalhes.</li><li>O dia atual possui uma borda de destaque.</li></ul></section>
 
@@ -1118,7 +1139,13 @@ window.openEvent = (tipo = 'ferias', id = null) => {
             </label>
             <div class="grid2">
                 <label>Data inicial *<input type="date" name="inicio" value="${evento.inicio || ''}" required></label>
-                <label>Data final *<input type="date" name="fim" value="${evento.fim || ''}" required></label>
+                <label id="eventDaysField" style="display:none">Número de dias *
+                    <input type="number" id="eventDays" min="1" step="1" inputmode="numeric"
+                        value="${diasDoPeriodo(evento.inicio, evento.fim) || ''}">
+                </label>
+                <label id="eventEndField"><span>Data final *</span>
+                    <input type="date" name="fim" value="${evento.fim || ''}" required>
+                </label>
             </div>
             <label>Alerta extra (opcional)<input type="date" name="alerta_extra" value="${evento.alerta_extra || ''}"></label>
             <label>Observações<textarea name="observacoes" rows="3">${esc(evento.observacoes || '')}</textarea></label>
@@ -1129,7 +1156,51 @@ window.openEvent = (tipo = 'ferias', id = null) => {
         </form>
     `);
 
-    $('#eventForm').onsubmit = async e => {
+    const formulario = $('#eventForm');
+    const campoDias = $('#eventDaysField', formulario);
+    const quantidade = $('#eventDays', formulario);
+    const campoFim = $('#eventEndField', formulario);
+    const linhaDasDatas = campoDias.parentElement;
+    const { tipo: tipoRegistro, inicio, fim } = formulario.elements;
+    let fimDoAbono = evento.tipo === 'abono' ? (evento.fim || '') : '';
+
+    function atualizarDataFinal() {
+        if (tipoRegistro.value !== 'ferias') return;
+        quantidade.setCustomValidity('');
+        fim.value = fimDasFerias(inicio.value, quantidade.valueAsNumber);
+        if (inicio.value && quantidade.validity.valid && !fim.value) {
+            quantidade.setCustomValidity('Informe uma duração que gere uma data final válida.');
+        }
+    }
+
+    function atualizarCamposDoPeriodo() {
+        const ferias = tipoRegistro.value === 'ferias';
+        campoDias.style.display = ferias ? '' : 'none';
+        quantidade.required = ferias;
+        quantidade.disabled = !ferias;
+        fim.readOnly = ferias;
+        fim.required = !ferias;
+        $('span', campoFim).textContent = ferias ? 'Data final (automática)' : 'Data final *';
+        if (ferias) {
+            linhaDasDatas.after(campoFim);
+            atualizarDataFinal();
+        } else {
+            quantidade.setCustomValidity('');
+            linhaDasDatas.append(campoFim);
+            fim.value = fimDoAbono;
+        }
+    }
+
+    tipoRegistro.addEventListener('change', atualizarCamposDoPeriodo);
+    inicio.addEventListener('input', atualizarDataFinal);
+    quantidade.addEventListener('input', atualizarDataFinal);
+    fim.addEventListener('input', () => {
+        if (tipoRegistro.value === 'abono') fimDoAbono = fim.value;
+    });
+    atualizarCamposDoPeriodo();
+
+    formulario.onsubmit = async e => {
+        atualizarDataFinal();
         e.preventDefault();
         const d = formData(e.target);
         if (id) d.servidor_id = evento.servidor_id;
